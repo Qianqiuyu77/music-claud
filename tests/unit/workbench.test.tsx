@@ -731,6 +731,48 @@ describe("Workbench", () => {
     fetchMock.mockRestore();
   });
 
+  it("sends companion chat messages to the backend with current song context", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (String(input) === "/api/chat") {
+        return new Response(JSON.stringify({ message: "I hear that line as a small late-night pause." }));
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+    render(
+      <RecommendationPanel
+        prompt="coding"
+        onPromptChange={() => undefined}
+        onRecommend={() => undefined}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开一起听" }));
+    fireEvent.change(screen.getByPlaceholderText("想聊聊这首吗？"), { target: { value: "this line hits" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await screen.findByText("I hear that line as a small late-night pause.");
+
+    const chatCall = fetchMock.mock.calls.find(([input]) => String(input) === "/api/chat");
+    expect(chatCall).toBeTruthy();
+    expect(JSON.parse(String(chatCall?.[1]?.body))).toEqual(
+      expect.objectContaining({
+        message: "this line hits",
+        song: expect.objectContaining({
+          id: "101",
+          name: "真实歌曲 A",
+          artists: ["歌手 A"]
+        }),
+        history: expect.arrayContaining([expect.objectContaining({ role: "companion" })])
+      })
+    );
+    expect(screen.queryByText(/后面会接入真正的对话接口/)).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
   it("opens a visual recommendation flow with AI filtering and ranking details", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     render(

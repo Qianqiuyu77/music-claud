@@ -1,5 +1,5 @@
 import { DeepSeekProvider } from "@/lib/ai/deepseekProvider";
-import type { AiProvider, AiTraceCall } from "@/lib/ai/types";
+import type { AiProvider, AiTraceCall, CompanionChatInput } from "@/lib/ai/types";
 import { createDatabase } from "@/lib/db/client";
 import { migrate } from "@/lib/db/schema";
 import { NeteaseCloudProvider } from "@/lib/netease/cloudProvider";
@@ -382,6 +382,20 @@ export async function createRecommendationResponse(
       playbackUrl: `https://music.163.com/#/song?id=${item.song.neteaseSongId}`
     }))
   };
+}
+
+export async function createCompanionChatResponse(input: CompanionChatInput, options: { aiProvider?: AiProvider } = {}) {
+  const message = input.message.trim();
+  if (!message) throw new Error("请输入想聊的内容。");
+  if (!input.song.id.trim() || !input.song.name.trim()) throw new Error("缺少当前歌曲信息，不能生成伴听回复。");
+
+  const provider = options.aiProvider ?? getAiProvider(true);
+  if (!provider.chatCompanion) throw new Error("当前 AI provider 不支持伴听聊天。");
+  return provider.chatCompanion({
+    ...input,
+    message,
+    history: (input.history ?? []).slice(-12)
+  });
 }
 
 function buildRecommendationInput(input: { mode: RecommendationMode; scene: RecommendationScene; text: string }) {

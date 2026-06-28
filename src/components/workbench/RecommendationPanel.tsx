@@ -87,6 +87,7 @@ export function RecommendationPanel({
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatSending, setChatSending] = useState(false);
   const items = result?.items ?? [];
   const activeItem = items[activeIndex] ?? items[0] ?? null;
   const activePlaybackSrc = activeItem?.streamUrl ? playbackProxyUrl(activeItem.song.neteaseSongId) : null;
@@ -299,20 +300,51 @@ export function RecommendationPanel({
     ]);
   }
 
-  function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = chatDraft.trim();
-    if (!text) return;
-    setChatMessages((current) => [
-      ...current,
-      { id: `user-${Date.now()}`, role: "user", text },
-      {
-        id: `companion-${Date.now()}`,
-        role: "companion",
-        text: "这句我先记下。后面会接入真正的对话接口，把当前歌曲和歌词一起发给 AI。"
-      }
-    ]);
+    if (!text || !activeItem || chatSending) return;
+    const userMessage: ChatMessage = { id: `user-${Date.now()}`, role: "user", text };
+    const history = [...chatMessages, userMessage];
+    setChatMessages(history);
     setChatDraft("");
+    setChatSending(true);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          song: {
+            id: activeItem.song.neteaseSongId,
+            name: activeItem.song.name,
+            artists: activeItem.song.artistNames,
+            album: activeItem.song.albumName,
+            tags: activeItem.song.tags
+          },
+          currentLyricLine: activeLyricIndex >= 0 ? lyricLines[activeLyricIndex] : null,
+          playback: {
+            currentTime: boundedCurrentTime,
+            duration
+          },
+          history
+        })
+      });
+      const data = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+      if (!response.ok || !data.message) throw new Error(data.error ?? "伴听回复失败");
+      setChatMessages((current) => [...current, { id: `companion-${Date.now()}`, role: "companion", text: data.message! }]);
+    } catch (error) {
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `companion-error-${Date.now()}`,
+          role: "companion",
+          text: error instanceof Error ? error.message : "伴听回复失败"
+        }
+      ]);
+    } finally {
+      setChatSending(false);
+    }
   }
 
   return (
@@ -589,7 +621,7 @@ export function RecommendationPanel({
             </div>
             <form className="chat-compose" onSubmit={sendChatMessage}>
               <input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="想聊聊这首吗？" />
-              <button type="submit" aria-label="发送" disabled={!chatDraft.trim()}>
+              <button type="submit" aria-label="发送" disabled={!chatDraft.trim() || chatSending}>
                 <Send size={18} />
               </button>
             </form>

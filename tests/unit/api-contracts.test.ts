@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GET as defaultQueueGet } from "@/app/api/default-queue/route";
 import { POST as recommendationsPost } from "@/app/api/recommendations/route";
+import { handleChatRequest } from "@/lib/companionChatRoute";
 import {
   createDefaultLikedQueueResponse,
   createRecommendationResponse,
@@ -436,6 +437,61 @@ describe("app services", () => {
     expect(response.context.targetTags).toEqual(expect.arrayContaining(["scene:focus", "mood:calm", "vocal:less_vocal"]));
     expect(response.items[0].reason).toBe("AI 重排第 1 首");
     expect(response.items[0].id).toBe("fixture-8");
+  });
+
+  it("uses the AI companion endpoint with current song and lyric context", async () => {
+    const calls: unknown[] = [];
+    const aiProvider: AiProvider = {
+      async parseListeningContext() {
+        throw new Error("not used");
+      },
+      async summarizePreference() {
+        throw new Error("not used");
+      },
+      async generateReasons() {
+        throw new Error("not used");
+      },
+      async chatCompanion(input) {
+        calls.push(input);
+        return {
+          message: "That line feels like walking home after midnight.",
+          rawResponse: "{\"message\":\"That line feels like walking home after midnight.\"}"
+        };
+      }
+    };
+
+    const response = await handleChatRequest(
+      new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          message: "this lyric hits",
+          song: {
+            id: "fixture-1",
+            name: "Test Song",
+            artists: ["Test Artist"],
+            album: "Test Album",
+            tags: ["ai:mood:calm"]
+          },
+          currentLyricLine: { time: 42, text: "walking home after midnight" },
+          playback: { currentTime: 43, duration: 180 },
+          history: [{ role: "companion", text: "I am listening with you." }]
+        })
+      }),
+      { aiProvider }
+    );
+
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("That line feels like walking home after midnight.");
+    expect(calls).toEqual([
+      expect.objectContaining({
+        message: "this lyric hits",
+        song: expect.objectContaining({ id: "fixture-1", name: "Test Song" }),
+        currentLyricLine: expect.objectContaining({ text: "walking home after midnight" }),
+        history: [{ role: "companion", text: "I am listening with you." }]
+      })
+    ]);
   });
 
   it("skips preference summary when no user profile data exists", async () => {

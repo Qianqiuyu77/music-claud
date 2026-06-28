@@ -21,6 +21,42 @@ function fakeClient(contents: string[]) {
 }
 
 describe("DeepSeek AI integration", () => {
+  it("uses DeepSeek as a casual companion with song and lyric context", async () => {
+    const client = fakeClient([
+      JSON.stringify({
+        message: "This line has that quiet late-night feeling."
+      })
+    ]);
+    const provider = new DeepSeekProvider({ client });
+
+    const response = await provider.chatCompanion({
+      message: "what do you think of this line?",
+      song: {
+        id: "101",
+        name: "Test Song",
+        artists: ["Test Artist"],
+        album: "Test Album",
+        tags: ["ai:mood:calm"]
+      },
+      currentLyricLine: { time: 12, text: "quiet late-night feeling" },
+      playback: { currentTime: 12, duration: 180 },
+      history: []
+    });
+
+    expect(response.message).toBe("This line has that quiet late-night feeling.");
+    const request = client.calls[0] as { messages: Array<{ role: string; content: string }> };
+    expect(request.messages[0].content).toContain("friend");
+    expect(request.messages[0].content).toContain("Do not invent songs");
+    expect(JSON.parse(request.messages[1].content)).toEqual(
+      expect.objectContaining({
+        message: "what do you think of this line?",
+        song: expect.objectContaining({ id: "101", name: "Test Song" }),
+        currentLyricLine: expect.objectContaining({ text: "quiet late-night feeling" })
+      })
+    );
+    expect(provider.getTrace().at(-1)).toEqual(expect.objectContaining({ stage: "chat", rawResponse: "{\"message\":\"This line has that quiet late-night feeling.\"}" }));
+  });
+
   it("uses DeepSeek to tag songs with the controlled taxonomy", async () => {
     const client = fakeClient([
       JSON.stringify({

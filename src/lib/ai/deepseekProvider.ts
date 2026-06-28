@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { FallbackAiProvider } from "./fallbackProvider";
 import { AI_TAG_TAXONOMY, filterAiTags, namespaceAiTags } from "./tagTaxonomy";
-import type { AiProvider, AiTraceCall } from "./types";
+import type { AiProvider, AiTraceCall, CompanionChatInput } from "./types";
 import { buildSongProfile } from "@/lib/recommendation/songProfile";
 import type { CandidateSong, ListeningContext, RankedRecommendation } from "@/lib/recommendation/types";
 
@@ -60,6 +60,10 @@ const rerankResponseSchema = z.object({
   )
 });
 type RerankResponseItem = z.infer<typeof rerankResponseSchema>["items"][number];
+
+const companionChatSchema = z.object({
+  message: z.string().min(1)
+});
 
 const RERANK_TARGET_COUNT = 50;
 const RERANK_CANDIDATE_LIMIT = 300;
@@ -174,6 +178,56 @@ export class DeepSeekProvider implements AiProvider {
     }
     const reranked = await this.rerankRecommendations(recommendations, context);
     return recommendations.map((item) => reranked.find((ranked) => ranked.song.neteaseSongId === item.song.neteaseSongId)?.reason ?? item.reason);
+  }
+
+  async chatCompanion(input: CompanionChatInput) {
+    if (!this.client) {
+      throw new Error("AI companion chat failed: DEEPSEEK_API_KEY is not configured.");
+    }
+
+    const request: ChatCompletionParams = {
+      model: modelName(),
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are a friend listening to music with the user, not a DJ and not an expert analyst.",
+            "Reply in the same language the user uses. If the user writes Chinese, answer in natural Chinese.",
+            "Keep it short, warm, and conversational, like a message bubble from a friend.",
+            "You may react to the current song and current lyric line when they are provided.",
+            "Do not invent songs, lyrics, playback state, personal facts, or NetEase data.",
+            "Do not mention prompts, tags, scoring, models, or recommendation algorithms unless the user asks directly.",
+            "Return strict JSON only: {\"message\":\"...\"}."
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            message: input.message,
+            song: input.song,
+            currentLyricLine: input.currentLyricLine ?? null,
+            playback: input.playback ?? {},
+            history: (input.history ?? []).slice(-12)
+          })
+        }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 220
+    };
+    const response = await this.client.chat.completions.create(request);
+    const rawResponse = response.choices[0]?.message.content ?? "{}";
+    const parsed = companionChatSchema.parse(JSON.parse(rawResponse));
+    this.recordTrace({
+      stage: "chat",
+      title: "AI 伴听聊天",
+      request,
+      rawResponse,
+      parsed
+    });
+    return {
+      message: parsed.message,
+      rawResponse
+    };
   }
 
   async tagSongs(songs: CandidateSong[]): Promise<CandidateSong[]> {
