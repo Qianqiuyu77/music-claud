@@ -12,12 +12,18 @@ test("player page stays clean and generates a playable AI-ranked queue", async (
 
   await page.getByRole("button", { name: "输入场景" }).click();
   await expect(page.getByRole("dialog", { name: "场景推荐" })).toBeVisible();
+  await page.getByRole("button", { name: "写代码" }).click();
   await page.getByRole("textbox", { name: /听歌场景/i }).fill("写代码，安静，少人声，不要太吵");
+  await page.getByRole("button", { name: "探索新歌" }).click();
+  await expect(page.getByRole("dialog", { name: "切换推荐模式" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "下一首开始" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "立即播放新队列" })).toBeEnabled();
+  await page.getByRole("button", { name: "下一首开始" }).click();
   await page.getByRole("button", { name: /生成推荐/i }).click();
   await expect(page.getByRole("dialog", { name: "场景推荐" })).not.toBeVisible();
 
-  await expect(page.getByText("正在播放")).toBeVisible({ timeout: 90000 });
   await expect(page.locator(".player-dock .source-pill")).toHaveText("AI 选中", { timeout: 90000 });
+  await expect(page.locator(".now-label")).toContainText("探索新歌", { timeout: 90000 });
   const desktopLayout = await page.evaluate(() => ({
     htmlHeight: document.documentElement.scrollHeight,
     viewportHeight: window.innerHeight,
@@ -53,6 +59,11 @@ test("player page stays clean and generates a playable AI-ranked queue", async (
   await expect(page.getByText(/Fits|Included|signals|freshness/i)).toHaveCount(0);
   await expect(page.getByText(/首推荐|首可播放|持续推荐中|已到队列末尾/)).toHaveCount(0);
   await expect(page.locator(".player-summary")).toHaveCount(0);
+  await page.locator(".cover-toggle").click();
+  await expect(page.locator(".lyric-panel")).toBeVisible();
+  await expect(page.locator(".lyric-panel").locator(".lyric-loading, .lyric-empty, .lyric-line")).not.toHaveCount(0);
+  await page.locator(".lyric-panel").click();
+  await expect(page.locator(".lyric-panel")).toHaveCount(0);
 
   await expect(page.getByRole("button", { name: "推荐逻辑" })).toBeVisible();
   await page.getByRole("button", { name: "推荐逻辑" }).click();
@@ -91,6 +102,14 @@ test("player page stays clean and generates a playable AI-ranked queue", async (
   await expect(page.locator(".player-shell audio")).toHaveAttribute("src", /^\/api\/playback\?id=/);
   await expect(page.getByText("在网易云打开").first()).toBeVisible();
   await expect(page.getByRole("button", { name: /标记喜欢/i }).first()).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("button", { name: "打开一起听" }).click();
+  await expect(page.getByRole("dialog", { name: "一起听" })).toBeVisible();
+  await expect(page.locator(".chat-mini-controls button[aria-label='聊天播放'], .chat-mini-controls button[aria-label='聊天暂停']")).toBeVisible();
+  await expect(page.getByRole("button", { name: "聊天下一首" })).toBeVisible();
+  await page.getByRole("button", { name: "聊天下一首" }).click();
+  await expect(page.locator(".chat-island")).toBeVisible();
+  await page.getByRole("button", { name: "返回播放器" }).click();
+  await expect(page.getByRole("dialog", { name: "一起听" })).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileLayout = await page.evaluate(() => ({
