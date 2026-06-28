@@ -104,6 +104,7 @@ function RecommendationWorkflowPageView({ result, flow, aiCalls }: { result: Rec
 
   return (
     <section className="flow-view flow-view-page">
+      <FlowAuditOverview result={result} flow={flow} />
       <section className="workflow-map" aria-label="数据流节点图">
         <div className="workflow-map-header">
           <div>
@@ -158,6 +159,65 @@ function RecommendationWorkflowPageView({ result, flow, aiCalls }: { result: Rec
       </section>
 
       <AiRawPanel aiCalls={aiCalls} />
+    </section>
+  );
+}
+
+function FlowAuditOverview({ result, flow }: { result: RecommendationResponse | null; flow: RecommendationFlow }) {
+  const mode = flow.input.mode ?? flow.context.mode ?? result?.context.mode ?? "balanced";
+  const modeMix = flow.recall?.modeMix;
+  const sourceCounts = flow.recall?.candidateSourceCounts ?? {};
+  const aiSelected = flow.ranking.aiSelectedCount ?? result?.items.filter((item) => (item.selectionSource ?? "ai") === "ai").length ?? 0;
+  const localFill = flow.ranking.localFillCount ?? result?.items.filter((item) => item.selectionSource === "local_fill").length ?? 0;
+  const sourceText = Object.entries(sourceCounts).map(([source, count]) => `${source}: ${count}`);
+  return (
+    <section className="flow-audit-overview" aria-label="推荐参数总览">
+      <div>
+        <span>推荐模式</span>
+        <strong>{modeLabel(mode)}</strong>
+      </div>
+      <div>
+        <span>场景</span>
+        <strong>{flow.input.scene ?? flow.context.scene}</strong>
+      </div>
+      <div>
+        <span>自由文本</span>
+        <strong>{flow.input.text ?? (flow.input.prompt || "未输入")}</strong>
+      </div>
+      <div>
+        <span>本地粗排</span>
+        <strong>{flow.ranking.localCandidateLimit ? `本地 Top ${flow.ranking.localCandidateLimit}` : `${flow.ranking.localRankedCount} 首`}</strong>
+      </div>
+      <div>
+        <span>AI 精排</span>
+        <strong>{flow.ranking.aiTargetCount ? `AI Top ${flow.ranking.aiTargetCount}` : `${flow.ranking.aiRerankedCount} 首`}</strong>
+      </div>
+      <div>
+        <span>AI 候选池</span>
+        <strong>{result?.page?.aiPoolSize ? `AI 候选池 ${result.page.aiPoolSize} 首` : "暂无记录"}</strong>
+      </div>
+      <div>
+        <span>最终来源</span>
+        <strong>{`AI 选中 ${aiSelected} 首`}</strong>
+        <small>{`本地补齐 ${localFill} 首`}</small>
+      </div>
+      {modeMix ? (
+        <div>
+          <span>模式比例</span>
+          <strong>{`红心 ${formatRatio(modeMix.familiarLibraryRatio)}`}</strong>
+          <small>{`相似 ${formatRatio(modeMix.librarySimilarRatio)}`}</small>
+          <small>{`扩展 ${formatRatio(modeMix.neteaseExtensionRatio)}`}</small>
+        </div>
+      ) : null}
+      {sourceText.length ? (
+        <div>
+          <span>来源计数</span>
+          <strong>{sourceText[0]}</strong>
+          {sourceText.slice(1).map((source) => (
+            <small key={source}>{source}</small>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -266,6 +326,9 @@ function buildWorkflowNodes(result: RecommendationResponse | null, flow: Recomme
       action: "把用户的自然语言需求保存为本轮推荐 prompt，并带上续播时需要排除的歌曲 ID。",
       output: [
         { label: "prompt", value: flow.input.prompt || "未输入" },
+        { label: "推荐模式", value: modeLabel(flow.input.mode ?? flow.context.mode) },
+        { label: "场景", value: flow.input.scene ?? flow.context.scene },
+        { label: "自由文本", value: flow.input.text ?? (flow.input.prompt || "未输入") },
         { label: "请求数量", value: `${flow.input.requested} 首` },
         { label: "续播排除", value: `${flow.input.excludedPlayedIds.length} 首` }
       ],
@@ -280,11 +343,12 @@ function buildWorkflowNodes(result: RecommendationResponse | null, flow: Recomme
       status: "done",
       input: [
         { label: "接口", value: "POST /api/recommendations" },
-        { label: "参数", value: `limit=${flow.input.requested}, excludeIds=${flow.input.excludedPlayedIds.length}` }
+        { label: "参数", value: `mode=${flow.input.mode ?? flow.context.mode ?? "balanced"}, scene=${flow.input.scene ?? flow.context.scene}, limit=${flow.input.requested}, excludeIds=${flow.input.excludedPlayedIds.length}` }
       ],
       action: "前端发起推荐请求，后端开始读取本地数据库和 AI 推荐服务。",
       output: [
         { label: "返回数量", value: `${result?.page?.returned ?? items.length} 首` },
+        { label: "AI 候选池", value: result?.page?.aiPoolSize ? `AI 候选池 ${result.page.aiPoolSize} 首` : "暂无记录" },
         { label: "是否还有更多", value: result?.page?.hasMore ? "是" : "否" }
       ],
       details: ["请求结果会同时写入 sessionStorage 和 localStorage，供这个流程页读取最近一次推荐。"],
@@ -402,6 +466,8 @@ function buildWorkflowNodes(result: RecommendationResponse | null, flow: Recomme
       action: "按候选来源分组召回歌曲，例如红心、歌单、最近播放、沉睡歌曲和网易云相似歌曲扩充结果。",
       output: [
         { label: "来源", value: sourceNames.join("、") || "真实曲库" },
+        { label: "模式比例", value: modeMixLabel(flow) },
+        { label: "来源计数", value: sourceCountsLabel(flow) },
         { label: "进入排序", value: `${flow.ranking.localRankedCount} 首` }
       ],
       count: { label: "召回数量", before: flow.library.afterPlayedExclusion, after: flow.ranking.localRankedCount },
@@ -420,6 +486,7 @@ function buildWorkflowNodes(result: RecommendationResponse | null, flow: Recomme
       ],
       action: "本地排序先按标签、来源、热度、新鲜度和反馈信号打分，筛出一批可交给 AI 精排的候选。",
       output: [
+        { label: "粗排上限", value: flow.ranking.localCandidateLimit ? `本地 Top ${flow.ranking.localCandidateLimit}` : "未记录" },
         { label: "本地候选", value: `${flow.ranking.localRankedCount} 首` },
         { label: "Top 预览", value: formatSongNames(flow.ranking.topLocal) }
       ],
@@ -486,7 +553,7 @@ function buildWorkflowNodes(result: RecommendationResponse | null, flow: Recomme
       status: isDefaultLikedQueue ? "empty" : rerankCalls.length ? "done" : "warning",
       input: [
         { label: "过滤后候选", value: `${flow.ranking.afterTagFilterCount} 首` },
-        { label: "目标返回", value: "50 首 AI 队列" }
+        { label: "目标返回", value: flow.ranking.aiTargetCount ? `AI Top ${flow.ranking.aiTargetCount}` : "50 首 AI 队列" }
       ],
       action: isDefaultLikedQueue
         ? "默认我喜欢随机播放，未调用 AI 重排。"
@@ -494,6 +561,8 @@ function buildWorkflowNodes(result: RecommendationResponse | null, flow: Recomme
           ? "AI 读取候选歌曲的名称、歌手、专辑、标签、来源和本地分数，重新排序并生成推荐理由。"
           : "本轮没有记录 AI 重排原始返回；如果是场景推荐，这代表 AI 调用失败或结果缺失，需要继续排查。",
       output: [
+        { label: "AI 目标", value: flow.ranking.aiTargetCount ? `AI Top ${flow.ranking.aiTargetCount}` : "未记录" },
+        { label: "AI 候选池", value: result?.page?.aiPoolSize ? `AI 候选池 ${result.page.aiPoolSize} 首` : "暂无记录" },
         { label: "AI 有效返回", value: `${flow.ranking.aiSelectedCount ?? flow.ranking.aiRerankedCount} 首` },
         { label: "本地补齐", value: `${flow.ranking.localFillCount ?? 0} 首` },
         { label: "推荐理由", value: formatSongReasons(flow.ranking.final) }
@@ -789,6 +858,29 @@ function formatSongReasons(songs: FlowSongSummary[]) {
 function formatPercent(value?: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "暂无";
   return `${Math.round(value * 100)}%`;
+}
+
+function formatRatio(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function modeLabel(mode?: string) {
+  if (mode === "familiar") return "红心熟悉";
+  if (mode === "explore") return "探索新歌";
+  if (mode === "balanced") return "平衡推荐";
+  return mode ?? "未记录";
+}
+
+function modeMixLabel(flow: RecommendationFlow) {
+  const mix = flow.recall?.modeMix;
+  if (!mix) return "暂无记录";
+  return `红心 ${formatRatio(mix.familiarLibraryRatio)} · 相似 ${formatRatio(mix.librarySimilarRatio)} · 扩展 ${formatRatio(mix.neteaseExtensionRatio)}`;
+}
+
+function sourceCountsLabel(flow: RecommendationFlow) {
+  const counts = flow.recall?.candidateSourceCounts;
+  if (!counts || !Object.keys(counts).length) return "暂无记录";
+  return Object.entries(counts).map(([source, count]) => `${source}: ${count}`).join(" · ");
 }
 
 function formatNodeCount(count: WorkflowNode["count"]) {

@@ -1,5 +1,6 @@
 import type { CandidateSong, ListeningContext, RankedRecommendation, ScoreBreakdown } from "./types";
 import { matchingSongTags, reasonTags, tagLabel } from "./songTags";
+import { energyScore, playableAvoidScore, profileConfidence, sceneFitScore, soundExperienceScore, moodScore } from "./songProfile";
 
 const sourceWeights: Record<string, number> = {
   liked: 2.4,
@@ -39,8 +40,24 @@ function scoreSong(song: CandidateSong, context: ListeningContext): ScoreBreakdo
   const hasNegative = song.feedback.includes("dislike") || song.feedback.includes("too_familiar");
   const asksForNovelty = context.novelty === "explore";
   const days = song.daysSinceLastPlayed ?? 999;
+  const confidence = profileConfidence(song);
+  const sceneScore = sceneFitScore(song, context) * confidence;
+  const soundScore = soundExperienceScore(song, context) * confidence;
+  const moodMatchScore = moodScore(song, context) * confidence;
+  const energyMatchScore = energyScore(song, context) * confidence;
+  const modeFreshnessScore = modeFreshness(song, context);
+  const behaviorScore = song.feedback.includes("more_like_this") ? 8 : song.feedback.includes("like") ? 5 : 0;
+  const playableScore = playableAvoidScore(song, context);
 
   return {
+    sceneFitScore: sceneScore,
+    soundExperienceScore: soundScore,
+    moodScore: moodMatchScore,
+    energyScore: energyMatchScore,
+    modeFreshnessScore,
+    behaviorFeedbackScore: behaviorScore,
+    playableAvoidScore: playableScore,
+    profileConfidenceScore: confidence,
     longTermPreferenceScore: song.sources.includes("liked") || song.sources.includes("playlist") ? 2 : 0.5,
     contextMatchScore: tagMatches * 1.7,
     sourceConfidenceScore,
@@ -51,6 +68,22 @@ function scoreSong(song: CandidateSong, context: ListeningContext): ScoreBreakdo
     fatiguePenalty: song.recentPlayCount > 10 ? -2.5 : song.recentPlayCount > 4 ? -1 : 0,
     negativeFeedbackPenalty: hasNegative ? -4 : excludedMatches ? -3 * excludedMatches : 0
   };
+}
+
+function modeFreshness(song: CandidateSong, context: ListeningContext) {
+  if (context.novelty === "explore") {
+    if (song.sources.includes("exploration") || song.sources.includes("netease_similar_song") || song.sources.includes("netease_similar_playlist")) return 10;
+    if (song.sources.includes("liked")) return 3;
+    return 6;
+  }
+  if (context.novelty === "familiar") {
+    if (song.sources.includes("liked") || song.sources.includes("recent")) return 10;
+    if (song.sources.includes("exploration")) return 2;
+    return 6;
+  }
+  if (song.sources.includes("liked")) return 7;
+  if (song.sources.includes("exploration") || song.sources.includes("netease_similar_song")) return 6;
+  return 5;
 }
 
 function repeatedArtistPenalty(song: CandidateSong) {

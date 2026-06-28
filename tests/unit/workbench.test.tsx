@@ -115,7 +115,54 @@ describe("Workbench", () => {
         "/api/recommendations",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ prompt: "写代码，安静，少人声", limit: 12, excludeIds: [] })
+          body: JSON.stringify({
+            prompt: "写代码，安静，少人声",
+            text: "写代码，安静，少人声",
+            mode: "balanced",
+            scene: "general",
+            limit: 12,
+            excludeIds: []
+          })
+        })
+      );
+    });
+
+    fetchMock.mockRestore();
+  });
+
+  it("sends recommendation mode, scene, and free text when generating a queue", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Promise<Response>(() => undefined);
+      }
+      if (url === "/api/recommendations") {
+        return new Response(JSON.stringify(firstPageResult));
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+
+    render(<Workbench />);
+
+    fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
+    fireEvent.click(screen.getByRole("button", { name: "探索新歌" }));
+    fireEvent.click(screen.getByRole("button", { name: "写代码" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /听歌场景/i }), { target: { value: "别太困，有点律动" } });
+    fireEvent.click(screen.getByRole("button", { name: /生成推荐/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/recommendations",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            prompt: "别太困，有点律动",
+            text: "别太困，有点律动",
+            mode: "explore",
+            scene: "work_focus",
+            limit: 12,
+            excludeIds: []
+          })
         })
       );
     });
@@ -280,6 +327,29 @@ describe("Workbench", () => {
     expect(screen.getAllByText(/你是音乐推荐意图解析器/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/写代码/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AI 原始意图返回/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/AI 原始推荐理由/).length).toBeGreaterThan(0);
+  });
+
+  it("exposes mode, scene, Top 200, Top 50, AI pool, and local fill details on the flow page", async () => {
+    window.sessionStorage.setItem("latestRecommendationResult", JSON.stringify(flowAuditResult));
+
+    render(<RecommendationFlowPage />);
+
+    expect(await screen.findByRole("heading", { name: "推荐生成流程" })).toBeInTheDocument();
+    expect(screen.getAllByText("平衡推荐").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("work_focus").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("别太困，有点律动").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("本地 Top 200").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AI Top 50").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AI 候选池 50 首").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AI 选中 1 首").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("本地补齐 1 首").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("红心 45%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("相似 35%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("扩展 20%").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("liked: 18").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("exploration: 8").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/AI 完整返回/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AI 原始推荐理由/).length).toBeGreaterThan(0);
   });
 
@@ -489,7 +559,7 @@ describe("Workbench", () => {
       />
     );
 
-    expect(screen.getByText("AI 选中")).toBeInTheDocument();
+    expect(screen.getAllByText("AI 选中").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "打开播放队列" }));
     expect(screen.getByText("本地补齐")).toBeInTheDocument();
     expect(screen.getByText("我喜欢随机")).toBeInTheDocument();
@@ -566,8 +636,60 @@ describe("Workbench", () => {
     fetchMock.mockRestore();
   });
 
-  it("does not request or render lyrics in the player", () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+  it("loads synced lyrics when the user taps the cover and highlights the current line", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).startsWith("/api/lyrics")) {
+        return new Response(
+          JSON.stringify({
+            lines: [
+              { time: 0, text: "前一句歌词" },
+              { time: 40, text: "当前这一句歌词", translation: "current line" },
+              { time: 80, text: "下一句歌词" }
+            ]
+          })
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+    const { container } = render(
+      <RecommendationPanel
+        prompt="写代码"
+        onPromptChange={() => undefined}
+        onRecommend={() => undefined}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+    const audio = container.querySelector("audio") as HTMLAudioElement;
+
+    Object.defineProperty(audio, "duration", { configurable: true, value: 185 });
+    Object.defineProperty(audio, "currentTime", { configurable: true, writable: true, value: 42 });
+    fireEvent.loadedMetadata(audio);
+    fireEvent.timeUpdate(audio);
+    fireEvent.click(screen.getByRole("button", { name: "切换到歌词" }));
+
+    expect(await screen.findByText("当前这一句歌词")).toBeInTheDocument();
+    expect(container.querySelector(".lyric-line.is-active")).toHaveTextContent("当前这一句歌词");
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/lyrics?id=101"))).toBe(true);
+
+    fetchMock.mockRestore();
+  });
+
+  it("highlights the first lyric line before the first timestamp starts", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).startsWith("/api/lyrics")) {
+        return new Response(
+          JSON.stringify({
+            lines: [
+              { time: 20, text: "还没唱到的第一句" },
+              { time: 40, text: "第二句歌词" }
+            ]
+          })
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
     const { container } = render(
       <RecommendationPanel
         prompt="写代码"
@@ -579,10 +701,32 @@ describe("Workbench", () => {
       />
     );
 
-    expect(container.querySelector(".lyric-panel")).not.toBeInTheDocument();
-    expect(container.querySelector(".lyric-line")).not.toBeInTheDocument();
-    expect(screen.queryByText("暂无可同步歌词")).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/lyrics"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "切换到歌词" }));
+
+    expect(await screen.findByText("还没唱到的第一句")).toBeInTheDocument();
+    expect(container.querySelector(".lyric-line.is-active")).toHaveTextContent("还没唱到的第一句");
+
+    fetchMock.mockRestore();
+  });
+
+  it("opens the companion chat from the player controls", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    render(
+      <RecommendationPanel
+        prompt="写代码"
+        onPromptChange={() => undefined}
+        onRecommend={() => undefined}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开一起听" }));
+
+    expect(screen.getByRole("dialog", { name: "一起听" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("想聊聊这首吗？")).toBeInTheDocument();
+    expect(screen.getAllByText("真实歌曲 A").length).toBeGreaterThan(0);
 
     fetchMock.mockRestore();
   });
@@ -858,6 +1002,75 @@ const queuePlaybackResult: RecommendationResponse = {
         }
       : item
   )
+};
+
+const flowAuditResult: RecommendationResponse = {
+  ...recommendationResult,
+  context: { ...recommendationResult.context, scene: "work_focus", mode: "balanced" },
+  page: { requested: 12, returned: 2, excluded: 0, aiPoolSize: 50, hasMore: true },
+  flow: {
+    ...recommendationResult.flow!,
+    input: {
+      prompt: "别太困，有点律动",
+      text: "别太困，有点律动",
+      mode: "balanced",
+      scene: "work_focus",
+      requested: 12,
+      excludedPlayedIds: []
+    },
+    context: {
+      ...recommendationResult.flow!.context,
+      scene: "work_focus",
+      mode: "balanced",
+      rhythm: "steady",
+      distraction: "low"
+    },
+    recall: {
+      modeMix: {
+        mode: "balanced",
+        familiarLibraryRatio: 0.45,
+        librarySimilarRatio: 0.35,
+        neteaseExtensionRatio: 0.2
+      },
+      candidateSourceCounts: {
+        liked: 18,
+        playlist: 14,
+        exploration: 8
+      }
+    },
+    ranking: {
+      ...recommendationResult.flow!.ranking,
+      localCandidateLimit: 200,
+      aiTargetCount: 50,
+      localRankedCount: 200,
+      afterTagFilterCount: 180,
+      aiRerankedCount: 50,
+      aiSelectedCount: 1,
+      localFillCount: 1,
+      finalCount: 2,
+      topLocal: [
+        { id: "101", name: "真实歌曲 A", artistNames: ["歌手 A"], score: 91.2, tags: ["calm"], reason: "本地 Top 候选。", rank: 1 },
+        { id: "102", name: "真实歌曲 B", artistNames: ["歌手 B"], score: 86.7, tags: ["rock"], reason: "本地补齐候选。", rank: 2 }
+      ],
+      final: [
+        { id: "101", name: "真实歌曲 A", artistNames: ["歌手 A"], score: 8.4, tags: ["calm"], reason: "AI 原始推荐理由", rank: 1, selectionSource: "ai" },
+        { id: "102", name: "真实歌曲 B", artistNames: ["歌手 B"], score: 7.8, tags: ["rock"], reason: "本地补齐理由", rank: 2, selectionSource: "local_fill" }
+      ]
+    }
+  },
+  items: [
+    {
+      ...recommendationResult.items[0],
+      selectionSource: "ai",
+      reason: "AI 原始推荐理由"
+    },
+    {
+      ...recommendationResult.items[1],
+      streamUrl: "https://music.example/102.mp3",
+      selectionSource: "local_fill",
+      reason: "本地补齐理由"
+    }
+  ]
 };
 
 const firstPageResult = pageResult("first", "第一页歌曲", true);

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
-import { BarChart3, ChevronLeft, ChevronRight, ExternalLink, Heart, ListMusic, MoreHorizontal, Pause, Play, Sparkles, ThumbsDown, TimerReset, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type FormEvent } from "react";
+import { ArrowLeft, BarChart3, ChevronLeft, ChevronRight, ExternalLink, Heart, ListMusic, MessageCircle, MoreHorizontal, Pause, Play, Send, Sparkles, ThumbsDown, TimerReset, X } from "lucide-react";
+import { findActiveLyricLineIndex, type LyricLine } from "@/lib/lyrics/lyrics";
 import { playbackProxyUrl } from "@/lib/playback/url";
 import { visibleSongTags } from "@/lib/recommendation/songTags";
+import type { RecommendationMode, RecommendationScene } from "@/lib/recommendation/types";
 import { RecommendationFlowView } from "./RecommendationFlowView";
 import type { RecommendationResponse } from "./recommendationTypes";
 
@@ -11,7 +13,11 @@ export type { RecommendationResponse } from "./recommendationTypes";
 
 type Props = {
   prompt: string;
+  recommendationMode?: RecommendationMode;
+  recommendationScene?: RecommendationScene;
   onPromptChange: (value: string) => void;
+  onModeChange?: (value: RecommendationMode) => void;
+  onSceneChange?: (value: RecommendationScene) => void;
   onRecommend: () => void;
   onLoadMore?: () => void;
   loading: boolean;
@@ -22,16 +28,43 @@ type Props = {
   autoPlayToken?: number;
 };
 
-const shortcuts = [
-  ["写代码", "写代码，安静，少人声，别太困"],
-  ["夜晚", "夜晚散步，有一点孤独感，不要太吵"],
-  ["通勤", "通勤路上，节奏稳定，心情提起来"],
-  ["运动", "运动，速度感强，不要太甜"],
-  ["探索", "想听点新鲜的，但别偏离太远"],
-  ["怀旧", "怀旧一点，适合一个人听"]
+const modeOptions: Array<{ label: string; value: RecommendationMode }> = [
+  { label: "红心熟悉", value: "familiar" },
+  { label: "平衡推荐", value: "balanced" },
+  { label: "探索新歌", value: "explore" }
 ];
 
-export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoadMore, loading, disabledReason, result, libraryCounts, errorMessage, autoPlayToken = 0 }: Props) {
+const sceneOptions: Array<{ label: string; value: RecommendationScene; prompt: string }> = [
+  { label: "写代码", value: "work_focus", prompt: "写代码，安静，少人声，别太困" },
+  { label: "通勤", value: "commute", prompt: "通勤路上，节奏稳定，心情提起来" },
+  { label: "夜晚", value: "night", prompt: "夜晚散步，有一点孤独感，不要太吵" },
+  { label: "睡前", value: "sleep", prompt: "睡前听，轻一点，别太抓耳" },
+  { label: "运动", value: "workout", prompt: "运动，速度感强，不要太甜" },
+  { label: "放松", value: "relax", prompt: "放松一下，温柔但不要太困" }
+];
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "companion";
+  text: string;
+};
+
+export function RecommendationPanel({
+  prompt,
+  recommendationMode = "balanced",
+  recommendationScene = "general",
+  onPromptChange,
+  onModeChange = () => undefined,
+  onSceneChange = () => undefined,
+  onRecommend,
+  onLoadMore,
+  loading,
+  disabledReason,
+  result,
+  libraryCounts,
+  errorMessage,
+  autoPlayToken = 0
+}: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const shouldAutoPlayRef = useRef(false);
   const previousFirstIdRef = useRef<string | null>(null);
@@ -46,6 +79,14 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
   const [sceneDialogOpen, setSceneDialogOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playerView, setPlayerView] = useState<"cover" | "lyrics">("cover");
+  const [lyricLines, setLyricLines] = useState<LyricLine[]>([]);
+  const [lyricsSongId, setLyricsSongId] = useState<string | null>(null);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [lyricsError, setLyricsError] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const items = result?.items ?? [];
   const activeItem = items[activeIndex] ?? items[0] ?? null;
   const activePlaybackSrc = activeItem?.streamUrl ? playbackProxyUrl(activeItem.song.neteaseSongId) : null;
@@ -57,6 +98,9 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
   const boundedCurrentTime = duration > 0 ? Math.min(currentTime, duration) : 0;
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (boundedCurrentTime / duration) * 100)) : 0;
   const timelineStyle = { "--timeline-progress": `${progressPercent}%` } as CSSProperties;
+  const activeLyricIndex = useMemo(() => findActiveLyricLineIndex(lyricLines, boundedCurrentTime), [lyricLines, boundedCurrentTime]);
+  const displayLyricIndex = lyricLines.length ? Math.max(0, activeLyricIndex) : -1;
+  const lyricWindow = useMemo(() => lyricLinesAround(lyricLines, displayLyricIndex), [lyricLines, displayLyricIndex]);
   const actionLabel = loading
     ? "生成中"
     : disabledReason === "checking"
@@ -78,12 +122,22 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
     setDuration(0);
     setQueueOpen(false);
     setFlowOpen(false);
+    setPlayerView("cover");
+    setLyricLines([]);
+    setLyricsSongId(null);
+    setLyricsError(null);
+    setLyricsLoading(false);
     shouldAutoPlayRef.current = false;
   }, [result]);
 
   useEffect(() => {
     setCurrentTime(0);
     setDuration(0);
+    setPlayerView("cover");
+    setLyricLines([]);
+    setLyricsSongId(null);
+    setLyricsError(null);
+    setLyricsLoading(false);
   }, [activeItem?.id]);
 
   useEffect(() => {
@@ -204,6 +258,63 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
     onRecommend();
   }
 
+  function chooseScene(scene: RecommendationScene, nextPrompt: string) {
+    onSceneChange(scene);
+    if (!prompt.trim()) onPromptChange(nextPrompt);
+  }
+
+  async function showLyrics() {
+    setPlayerView("lyrics");
+    if (!activeItem) return;
+    if (lyricsSongId === activeItem.song.neteaseSongId && lyricLines.length) return;
+    setLyricsLoading(true);
+    setLyricsError(null);
+    try {
+      const response = await fetch(`/api/lyrics?id=${encodeURIComponent(activeItem.song.neteaseSongId)}`);
+      const data = (await response.json().catch(() => ({}))) as { lines?: LyricLine[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "歌词获取失败");
+      }
+      setLyricsSongId(activeItem.song.neteaseSongId);
+      setLyricLines(Array.isArray(data.lines) ? data.lines : []);
+      if (!data.lines?.length) setLyricsError("这首歌暂时没有可同步的歌词。");
+    } catch (error) {
+      setLyricLines([]);
+      setLyricsError(error instanceof Error ? error.message : "歌词获取失败");
+    } finally {
+      setLyricsLoading(false);
+    }
+  }
+
+  function openChat() {
+    setChatOpen(true);
+    if (chatMessages.length || !activeItem) return;
+    const line = activeLyricIndex >= 0 ? lyricLines[activeLyricIndex]?.text : null;
+    setChatMessages([
+      {
+        id: "companion-welcome",
+        role: "companion",
+        text: line ? `我在听这一句：“${line}”。` : `我在，边听《${activeItem.song.name}》边聊。`
+      }
+    ]);
+  }
+
+  function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = chatDraft.trim();
+    if (!text) return;
+    setChatMessages((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: "user", text },
+      {
+        id: `companion-${Date.now()}`,
+        role: "companion",
+        text: "这句我先记下。后面会接入真正的对话接口，把当前歌曲和歌词一起发给 AI。"
+      }
+    ]);
+    setChatDraft("");
+  }
+
   return (
     <main className="music-stage">
       {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
@@ -217,7 +328,7 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
                 <BarChart3 size={18} />
               </button>
               <div className="now-label">
-                <span>{selectionSourceLabel(activeItem.selectionSource)}</span>
+                <span>{modeLabel(recommendationMode)}</span>
                 <strong>{activeItem.song.name}</strong>
               </div>
               <button type="button" className="player-icon-button" onClick={() => setQueueOpen(true)} aria-label="打开播放队列" title="播放队列">
@@ -226,12 +337,35 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
             </header>
 
             <section className="player-hero" aria-label="当前歌曲">
-              <div className="cover-wrap">
-                <span className="cover-glow" style={activeItem.song.coverUrl ? { backgroundImage: `url("${activeItem.song.coverUrl}")` } : undefined} aria-hidden="true" />
-                <span className="cover-art" aria-label={`${activeItem.song.name} 专辑封面`}>
-                  {activeItem.song.coverUrl ? <img src={activeItem.song.coverUrl} alt="" /> : <span className="cover-mark">AI</span>}
-                </span>
-              </div>
+              {playerView === "lyrics" ? (
+                <button type="button" className="lyric-panel" aria-label="切回封面" onClick={() => setPlayerView("cover")}>
+                  {lyricsLoading ? <span className="lyric-loading">正在找歌词...</span> : null}
+                  {!lyricsLoading && lyricsError ? <span className="lyric-empty">{lyricsError}</span> : null}
+                  {!lyricsLoading && !lyricsError && lyricWindow.length ? (
+                    <span className="lyric-window">
+                      {lyricWindow.map((line) => (
+                        <span key={`${line.time}-${line.text}`} className={line.index === displayLyricIndex ? "lyric-line is-active" : "lyric-line"}>
+                          <span>{line.text}</span>
+                          {line.translation ? <small>{line.translation}</small> : null}
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
+                </button>
+              ) : (
+                <button type="button" className="cover-wrap cover-toggle" aria-label="切换到歌词" onClick={() => void showLyrics()}>
+                  <span className="cover-glow" style={activeItem.song.coverUrl ? { backgroundImage: `url("${activeItem.song.coverUrl}")` } : undefined} aria-hidden="true" />
+                  <span className="cover-art" aria-label={`${activeItem.song.name} 专辑封面`}>
+                    {activeItem.song.coverUrl ? <img src={activeItem.song.coverUrl} alt="" /> : <span className="cover-mark">AI</span>}
+                  </span>
+                  <span className="companion-bubble" onClick={(event) => {
+                    event.stopPropagation();
+                    openChat();
+                  }}>
+                    {activeItem.reason}
+                  </span>
+                </button>
+              )}
 
               <div className="song-title-block">
                 <h1>{activeItem.song.name}</h1>
@@ -303,6 +437,9 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
               <button type="button" title="下一首" aria-label="下一首" onClick={() => selectIndex(activeIndex + 1)} disabled={items.length < 2}>
                 <ChevronRight size={22} />
               </button>
+              <button type="button" title="一起听" aria-label="打开一起听" onClick={openChat}>
+                <MessageCircle size={21} />
+              </button>
             </div>
 
             <button type="button" className="listen-request-button" onClick={() => setSceneDialogOpen(true)} aria-label="输入场景">
@@ -368,10 +505,17 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
               <span>听歌场景</span>
               <textarea value={prompt} onChange={(event) => onPromptChange(event.target.value)} placeholder="比如：深夜写代码，安静一点，少人声" />
             </label>
+            <div className="mode-segment" aria-label="推荐模式">
+              {modeOptions.map((option) => (
+                <button key={option.value} type="button" className={recommendationMode === option.value ? "is-selected" : undefined} onClick={() => onModeChange(option.value)}>
+                  {option.label}
+                </button>
+              ))}
+            </div>
             <div className="shortcut-row scene-shortcuts">
-              {shortcuts.map(([label, value]) => (
-                <button key={label} type="button" onClick={() => onPromptChange(value)}>
-                  {label}
+              {sceneOptions.map((option) => (
+                <button key={option.value} type="button" className={recommendationScene === option.value ? "is-selected" : undefined} onClick={() => chooseScene(option.value, option.prompt)}>
+                  {option.label}
                 </button>
               ))}
             </div>
@@ -420,6 +564,38 @@ export function RecommendationPanel({ prompt, onPromptChange, onRecommend, onLoa
       ) : null}
 
       {flowOpen ? <RecommendationFlowDialog result={result} onClose={() => setFlowOpen(false)} /> : null}
+      {chatOpen && activeItem ? (
+        <div className="chat-overlay" role="dialog" aria-modal="true" aria-label="一起听">
+          <section className="chat-page">
+            <header className="chat-header">
+              <button type="button" className="chat-back" aria-label="返回播放器" onClick={() => setChatOpen(false)}>
+                <ArrowLeft size={20} />
+              </button>
+              <button type="button" className="chat-island" onClick={() => setChatOpen(false)}>
+                <span className="chat-island-cover" style={activeItem.song.coverUrl ? { backgroundImage: `url("${activeItem.song.coverUrl}")` } : undefined} />
+                <span className="chat-island-copy">
+                  <strong>{activeItem.song.name}</strong>
+                  <span>{activeItem.song.artistNames.join("、") || "未知歌手"}</span>
+                </span>
+                <span className="chat-island-progress" style={{ "--timeline-progress": `${progressPercent}%` } as CSSProperties} />
+              </button>
+            </header>
+            <div className="chat-thread">
+              {chatMessages.map((message) => (
+                <p key={message.id} className={message.role === "user" ? "chat-message is-user" : "chat-message"}>
+                  {message.text}
+                </p>
+              ))}
+            </div>
+            <form className="chat-compose" onSubmit={sendChatMessage}>
+              <input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="想聊聊这首吗？" />
+              <button type="submit" aria-label="发送" disabled={!chatDraft.trim()}>
+                <Send size={18} />
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -479,6 +655,20 @@ function selectionSourceLabel(source?: "ai" | "local_fill" | "default_liked") {
   if (source === "local_fill") return "本地补齐";
   if (source === "default_liked") return "我喜欢随机";
   return "AI 选中";
+}
+
+function modeLabel(mode: RecommendationMode) {
+  if (mode === "familiar") return "红心熟悉";
+  if (mode === "explore") return "探索新歌";
+  return "平衡推荐";
+}
+
+function lyricLinesAround(lines: LyricLine[], activeIndex: number) {
+  if (!lines.length) return [];
+  const fallbackIndex = activeIndex >= 0 ? activeIndex : 0;
+  const start = Math.max(0, fallbackIndex - 2);
+  const end = Math.min(lines.length, fallbackIndex + 3);
+  return lines.slice(start, end).map((line, index) => ({ ...line, index: start + index }));
 }
 
 function SongTagList({ songName, tags }: { songName: string; tags: string[] }) {

@@ -10,10 +10,10 @@ export type RecommendationAiCall = {
 };
 
 export type RecommendationResponse = {
-  context: { scene: string; mood: string[]; novelty: string };
+  context: { scene: string; mode?: string; mood: string[]; novelty: string };
   strategy: { candidateSources: string[]; partialFailures: string[]; novelty: string };
   libraryCounts: { songs: number; playableSongs?: number; lastSyncAt?: string | null; partialFailures: number };
-  page?: { requested: number; returned: number; excluded: number; hasMore: boolean };
+  page?: { requested: number; returned: number; excluded: number; aiPoolSize?: number; hasMore: boolean };
   flow?: RecommendationFlow;
   items: Array<{
     id: string;
@@ -37,13 +37,16 @@ export type RecommendationResponse = {
 };
 
 export type RecommendationFlow = {
-  input: { prompt: string; requested: number; excludedPlayedIds: string[] };
+  input: { prompt: string; mode?: string; scene?: string; text?: string; requested: number; excludedPlayedIds: string[] };
   context: {
     scene: string;
+    mode?: string;
     mood: string[];
     novelty: string;
     energy?: string;
     vocal?: string;
+    rhythm?: string;
+    distraction?: string;
     avoid?: string[];
     targetTags?: string[];
     excludeTags?: string[];
@@ -54,6 +57,15 @@ export type RecommendationFlow = {
     totalSongs: number;
     afterPlayedExclusion: number;
     sourceNames: string[];
+  };
+  recall?: {
+    modeMix?: {
+      mode: string;
+      familiarLibraryRatio: number;
+      librarySimilarRatio: number;
+      neteaseExtensionRatio: number;
+    };
+    candidateSourceCounts?: Record<string, number>;
   };
   tags?: {
     totalSongs: number;
@@ -67,6 +79,8 @@ export type RecommendationFlow = {
     cooldownExcluded?: Array<{ id: string; name: string; artistNames: string[]; reason: string; cooldownDays: number }>;
   };
   ranking: {
+    localCandidateLimit?: number;
+    aiTargetCount?: number;
     localRankedCount: number;
     afterTagFilterCount: number;
     aiRerankedCount: number;

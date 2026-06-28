@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { DataPanel } from "./DataPanel";
 import { RecommendationPanel, type RecommendationResponse } from "./RecommendationPanel";
 import { StrategyPanel } from "./StrategyPanel";
+import type { RecommendationMode, RecommendationScene } from "@/lib/recommendation/types";
 
 type LoginStatus = "waiting" | "scanned" | "authorized" | "expired";
 type LoginState = {
@@ -27,6 +28,8 @@ type LibraryCounts = {
 
 export function Workbench({ mode = "player" }: WorkbenchProps) {
   const [prompt, setPrompt] = useState("");
+  const [recommendationMode, setRecommendationMode] = useState<RecommendationMode>("balanced");
+  const [recommendationScene, setRecommendationScene] = useState<RecommendationScene>("general");
   const [result, setResult] = useState<RecommendationResponse | null>(null);
   const [login, setLogin] = useState<LoginState | null>(null);
   const [loginChecking, setLoginChecking] = useState(true);
@@ -249,7 +252,14 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       const response = await fetch("/api/recommendations", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: requestPrompt, limit: 12, excludeIds })
+        body: JSON.stringify({
+          prompt: requestPrompt,
+          text: requestPrompt,
+          mode: recommendationMode,
+          scene: recommendationScene,
+          limit: 12,
+          excludeIds
+        })
       });
       const data = (await response.json()) as RecommendationResponse | { error?: string };
       if (!response.ok || !("items" in data)) {
@@ -312,7 +322,11 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       ) : null}
       <RecommendationPanel
         prompt={prompt}
+        recommendationMode={recommendationMode}
+        recommendationScene={recommendationScene}
         onPromptChange={setPrompt}
+        onModeChange={setRecommendationMode}
+        onSceneChange={setRecommendationScene}
         onRecommend={() => requestRecommendations(false)}
         onLoadMore={() => requestRecommendations(true)}
         loading={loading}

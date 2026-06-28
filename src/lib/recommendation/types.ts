@@ -2,9 +2,12 @@ import type { Feedback } from "@/lib/db/types";
 
 export type ListeningContext = {
   scene: string;
+  mode?: RecommendationMode;
   mood: string[];
   energy: "low" | "low_to_medium" | "medium" | "high" | "unknown";
   vocal: "less_vocal" | "vocal_ok" | "instrumental" | "strong_vocal" | "unknown";
+  rhythm?: "steady" | "groovy" | "strong" | "loose" | "unknown";
+  distraction?: "low" | "medium" | "high" | "unknown";
   novelty: "familiar" | "balanced" | "explore";
   avoid: string[];
   targetTags?: string[];
@@ -12,6 +15,9 @@ export type ListeningContext = {
   familiarRatio?: number;
   exploreRatio?: number;
 };
+
+export type RecommendationMode = "familiar" | "balanced" | "explore";
+export type RecommendationScene = "work_focus" | "commute" | "night" | "sleep" | "workout" | "relax" | "general";
 
 export type CandidateSourceName =
   | "liked"
@@ -41,6 +47,14 @@ export type CandidateSong = {
 };
 
 export type ScoreBreakdown = {
+  sceneFitScore: number;
+  soundExperienceScore: number;
+  moodScore: number;
+  energyScore: number;
+  modeFreshnessScore: number;
+  behaviorFeedbackScore: number;
+  playableAvoidScore: number;
+  profileConfidenceScore: number;
   longTermPreferenceScore: number;
   contextMatchScore: number;
   sourceConfidenceScore: number;

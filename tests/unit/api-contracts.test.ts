@@ -180,6 +180,51 @@ describe("app services", () => {
     }
   });
 
+  it("accepts mode, scene, and text fields in the recommendation API request", async () => {
+    const originalCookie = process.env.NETEASE_COOKIE;
+    const originalKey = process.env.DEEPSEEK_API_KEY;
+    const originalDbPath = process.env.MUSIC_DB_PATH;
+    process.env.MUSIC_DB_PATH = ":memory:";
+    delete process.env.NETEASE_COOKIE;
+    delete process.env.DEEPSEEK_API_KEY;
+    resetAppServicesForTests();
+
+    try {
+      const repository = await getMusicRepositoryForApp();
+      repository.upsertCandidateSongs(fixtureSongs);
+      repository.recordSync("netease_import", fixtureSongs.length, []);
+
+      const response = await recommendationsPost(
+        new Request("http://localhost/api/recommendations", {
+          method: "POST",
+          body: JSON.stringify({ mode: "explore", scene: "work_focus", text: "别太困，少人声", limit: 12 })
+        })
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: expect.stringContaining("DeepSeek")
+      });
+    } finally {
+      if (originalCookie === undefined) {
+        delete process.env.NETEASE_COOKIE;
+      } else {
+        process.env.NETEASE_COOKIE = originalCookie;
+      }
+      if (originalKey === undefined) {
+        delete process.env.DEEPSEEK_API_KEY;
+      } else {
+        process.env.DEEPSEEK_API_KEY = originalKey;
+      }
+      if (originalDbPath === undefined) {
+        delete process.env.MUSIC_DB_PATH;
+      } else {
+        process.env.MUSIC_DB_PATH = originalDbPath;
+      }
+      resetAppServicesForTests();
+    }
+  });
+
   it("continues recommendations by excluding songs that were already played", async () => {
     const originalCookie = process.env.NETEASE_COOKIE;
     const originalDbPath = process.env.MUSIC_DB_PATH;
@@ -385,7 +430,7 @@ describe("app services", () => {
     const response = await createRecommendationResponse("写代码，安静，少人声", { songs: fixtureSongs, partialFailures: [] }, { requireAi: true, aiProvider });
 
     expect(calls).toEqual([
-      "parseListeningContext:写代码，安静，少人声:",
+      "parseListeningContext:mode=balanced\nscene=general\ntext=写代码，安静，少人声:",
       "rerankRecommendations"
     ]);
     expect(response.context.targetTags).toEqual(expect.arrayContaining(["scene:focus", "mood:calm", "vocal:less_vocal"]));
@@ -439,7 +484,7 @@ describe("app services", () => {
 
     const response = await createRecommendationResponse("写代码，安静，少人声", { songs: fixtureSongs, partialFailures: [] }, { requireAi: true, aiProvider });
 
-    expect(calls).toEqual(["parseListeningContext:写代码，安静，少人声:"]);
+    expect(calls).toEqual(["parseListeningContext:mode=balanced\nscene=general\ntext=写代码，安静，少人声:"]);
     expect(response.flow.ai?.calls?.[0].stage).toBe("preference");
     expect(response.flow.ai?.calls?.[0].parsed).toEqual(expect.objectContaining({ skipped: true }));
   });
@@ -549,6 +594,72 @@ describe("app services", () => {
     expect(response.flow.ranking.localFillCount).toBe(3);
     expect(response.flow.ranking.final[0].selectionSource).toBe("ai");
     expect(response.flow.ranking.final.slice(1).every((song) => song.selectionSource === "local_fill")).toBe(true);
+  });
+
+  it("passes mode, scene, and text through the recommendation flow and sends a Top 200 pool to AI", async () => {
+    const calls: Array<{ input?: string; recommendations?: RankedRecommendation[] }> = [];
+    const aiProvider: AiProvider = {
+      async summarizePreference() {
+        return "";
+      },
+      async parseListeningContext(input: string) {
+        calls.push({ input });
+        return {
+          scene: "work_focus",
+          mode: "explore",
+          mood: ["calm", "focused"],
+          energy: "low_to_medium" as const,
+          vocal: "less_vocal" as const,
+          rhythm: "steady" as const,
+          distraction: "low" as const,
+          novelty: "explore" as const,
+          avoid: ["too_sleepy"],
+          targetTags: ["scene:focus", "mood:calm", "vocal:less_vocal"],
+          excludeTags: ["distraction:high"],
+          familiarRatio: 0.2,
+          exploreRatio: 0.5
+        };
+      },
+      async generateReasons() {
+        return [];
+      },
+      async rerankRecommendations(recommendations: RankedRecommendation[]) {
+        calls.push({ recommendations });
+        return recommendations.slice(0, 50).map((item, index) => ({
+          ...item,
+          score: 100 - index,
+          reason: `AI Top50 第 ${index + 1} 首`
+        }));
+      }
+    };
+
+    const response = await createRecommendationResponse("别太困，有点律动", { songs: twoHundredFixtureSongs, partialFailures: [] }, {
+      requireAi: true,
+      aiProvider,
+      limit: 12,
+      mode: "explore",
+      scene: "work_focus"
+    });
+
+    expect(calls[0].input).toContain("mode=explore");
+    expect(calls[0].input).toContain("scene=work_focus");
+    expect(calls[0].input).toContain("别太困，有点律动");
+    expect(calls[1].recommendations).toHaveLength(200);
+    expect(response.items).toHaveLength(12);
+    expect(response.page).toEqual(expect.objectContaining({ requested: 12, returned: 12, aiPoolSize: 50 }));
+    expect(response.flow.input).toEqual(expect.objectContaining({ mode: "explore", scene: "work_focus", text: "别太困，有点律动" }));
+    expect(response.flow.recall?.modeMix).toEqual(
+      expect.objectContaining({
+        mode: "explore",
+        familiarLibraryRatio: 0.2,
+        librarySimilarRatio: 0.3,
+        neteaseExtensionRatio: 0.5
+      })
+    );
+    expect(response.flow.ranking.localCandidateLimit).toBe(200);
+    expect(response.flow.ranking.aiTargetCount).toBe(50);
+    expect(response.flow.ranking.aiRerankedCount).toBe(50);
+    expect(response.flow.ranking.final).toHaveLength(12);
   });
 
   it("hard-filters songs that match AI excludeTags and exposes the recommendation flow", async () => {
@@ -836,3 +947,22 @@ const longFixtureSongs: CandidateSong[] = Array.from({ length: 24 }, (_, index) 
   daysSinceLastPlayed: 30 + index,
   feedback: []
 }));
+
+const twoHundredFixtureSongs: CandidateSong[] = Array.from({ length: 240 }, (_, index) => {
+  const source = index % 5 === 0 ? "exploration" : index % 5 === 1 ? "netease_similar_song" : index % 5 === 2 ? "playlist" : "liked";
+  return {
+    neteaseSongId: `pool-${index + 1}`,
+    name: `候选池歌曲 ${index + 1}`,
+    artistNames: [`候选歌手 ${index + 1}`],
+    albumName: "候选池专辑",
+    coverUrl: null,
+    streamUrl: `https://music.example/pool-${index + 1}.mp3`,
+    durationMs: 180000,
+    popularity: 60 + (index % 30),
+    sources: [source as CandidateSong["sources"][number]],
+    tags: ["ai:tagged", "ai:scene:focus", "ai:mood:calm", "ai:vocal:less_vocal", "ai:rhythm:steady", "ai:distraction:low"],
+    recentPlayCount: 0,
+    daysSinceLastPlayed: 10 + index,
+    feedback: []
+  };
+});

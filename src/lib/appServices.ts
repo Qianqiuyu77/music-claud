@@ -9,7 +9,7 @@ import { saveLocalEnvValue } from "@/lib/server/envFile";
 import { recommendFromSources } from "@/lib/recommendation/engine";
 import type { CandidateSource } from "@/lib/recommendation/engine";
 import { ensureDistinctVisibleSongTags, matchingSongTags } from "@/lib/recommendation/songTags";
-import type { CandidateSong, ListeningContext } from "@/lib/recommendation/types";
+import type { CandidateSong, ListeningContext, RecommendationMode, RecommendationScene } from "@/lib/recommendation/types";
 import type { LatestPlayback } from "@/lib/repositories/musicRepository";
 import { MusicRepository } from "@/lib/repositories/musicRepository";
 
@@ -22,6 +22,8 @@ type RecommendationOptions = {
   excludeIds?: string[];
   requireAi?: boolean;
   aiProvider?: AiProvider;
+  mode?: RecommendationMode;
+  scene?: RecommendationScene;
 };
 type StorageTaggingOptions = {
   limit?: number;
@@ -47,6 +49,8 @@ type PlaybackEventInput = {
   completed?: boolean;
 };
 const DEFAULT_SYNC_AI_TAG_LIMIT = 100;
+const LOCAL_RERANK_CANDIDATE_LIMIT = 200;
+const AI_RERANK_TARGET_COUNT = 50;
 
 const realNetease = new NeteaseCloudProvider();
 const feedbackBySongId = new Map<string, CandidateSong["feedback"][number]>();
@@ -259,6 +263,9 @@ export async function createRecommendationResponse(
 ) {
   const limit = clampRecommendationLimit(options.limit ?? 12);
   const excludeIds = new Set((options.excludeIds ?? []).filter(Boolean));
+  const mode = normalizeRecommendationMode(options.mode);
+  const scene = normalizeRecommendationScene(options.scene);
+  const recommendationInput = buildRecommendationInput({ mode, scene, text: prompt });
   const library: LibraryResult = importedLibrary ?? (await getStoredLibrary());
   const feedbackSongs = applyStoredFeedback(library.songs);
   const latestPlayback = importedLibrary ? new Map<string, LatestPlayback>() : await getLatestPlaybackForSongs(feedbackSongs);
@@ -288,13 +295,17 @@ export async function createRecommendationResponse(
       createdAt: new Date().toISOString()
     });
   }
-  const context = await recommendationAi.parseListeningContext(prompt, profileSummary);
+  const context = {
+    ...(await recommendationAi.parseListeningContext(recommendationInput, profileSummary)),
+    mode
+  };
   const sources = buildCandidateSources(songs);
-  const ranked = await recommendFromSources(sources, context, Math.min(160, Math.max(limit * 8, limit)));
+  const ranked = await recommendFromSources(sources, context, LOCAL_RERANK_CANDIDATE_LIMIT);
   const enriched = await enrichRankedRecommendations(ranked);
   const excludedByTags = collectExcludedByTags(enriched.ranked.map((item) => item.song), context.excludeTags ?? []);
   const filteredRanked = enriched.ranked.filter((item) => !excludedByTags.some((excluded) => excluded.id === item.song.neteaseSongId));
-  const aiRanked = await rerankWithAi(recommendationAi, filteredRanked, context, limit, options.requireAi ?? false, hasInjectedAiProvider);
+  const aiPool = await rerankWithAi(recommendationAi, filteredRanked, context, Math.max(limit, AI_RERANK_TARGET_COUNT), options.requireAi ?? false, hasInjectedAiProvider);
+  const aiRanked = aiPool.slice(0, limit);
   const aiTrace = normalizeAiTrace([...preferenceTrace, ...(recommendationAi.getTrace?.() ?? [])]);
 
   return {
@@ -314,11 +325,15 @@ export async function createRecommendationResponse(
       requested: limit,
       returned: aiRanked.length,
       excluded: excludeIds.size,
+      aiPoolSize: aiPool.length,
       hasMore: songs.length > aiRanked.length
     },
     flow: {
       input: {
         prompt,
+        mode,
+        scene,
+        text: prompt,
         requested: limit,
         excludedPlayedIds: Array.from(excludeIds)
       },
@@ -328,6 +343,10 @@ export async function createRecommendationResponse(
         afterPlayedExclusion: songs.length,
         sourceNames: sources.map((source) => source.name)
       },
+      recall: {
+        modeMix: modeMixFor(mode),
+        candidateSourceCounts: countSongsBySource(songs)
+      },
       tags: buildTagAudit(library.songs),
       filters: {
         excludeTags: context.excludeTags ?? [],
@@ -335,9 +354,11 @@ export async function createRecommendationResponse(
         cooldownExcluded
       },
       ranking: {
+        localCandidateLimit: LOCAL_RERANK_CANDIDATE_LIMIT,
+        aiTargetCount: Math.min(AI_RERANK_TARGET_COUNT, filteredRanked.length),
         localRankedCount: ranked.length,
         afterTagFilterCount: filteredRanked.length,
-        aiRerankedCount: aiRanked.length,
+        aiRerankedCount: aiPool.length,
         aiSelectedCount: aiRanked.filter((item) => item.selectionSource === "ai").length,
         localFillCount: aiRanked.filter((item) => item.selectionSource === "local_fill").length,
         finalCount: aiRanked.length,
@@ -361,6 +382,52 @@ export async function createRecommendationResponse(
       playbackUrl: `https://music.163.com/#/song?id=${item.song.neteaseSongId}`
     }))
   };
+}
+
+function buildRecommendationInput(input: { mode: RecommendationMode; scene: RecommendationScene; text: string }) {
+  return [`mode=${input.mode}`, `scene=${input.scene}`, `text=${input.text}`].join("\n");
+}
+
+function normalizeRecommendationMode(mode?: RecommendationMode): RecommendationMode {
+  return mode === "familiar" || mode === "explore" || mode === "balanced" ? mode : "balanced";
+}
+
+function normalizeRecommendationScene(scene?: RecommendationScene): RecommendationScene {
+  const allowed = new Set<RecommendationScene>(["work_focus", "commute", "night", "sleep", "workout", "relax", "general"]);
+  return scene && allowed.has(scene) ? scene : "general";
+}
+
+function modeMixFor(mode: RecommendationMode) {
+  if (mode === "familiar") {
+    return {
+      mode,
+      familiarLibraryRatio: 0.8,
+      librarySimilarRatio: 0.2,
+      neteaseExtensionRatio: 0
+    };
+  }
+  if (mode === "explore") {
+    return {
+      mode,
+      familiarLibraryRatio: 0.2,
+      librarySimilarRatio: 0.3,
+      neteaseExtensionRatio: 0.5
+    };
+  }
+  return {
+    mode,
+    familiarLibraryRatio: 0.45,
+    librarySimilarRatio: 0.35,
+    neteaseExtensionRatio: 0.2
+  };
+}
+
+function countSongsBySource(songs: CandidateSong[]) {
+  const counts: Record<string, number> = {};
+  for (const song of songs) {
+    for (const source of song.sources) counts[source] = (counts[source] ?? 0) + 1;
+  }
+  return counts;
 }
 
 export async function createDefaultLikedQueueResponse(options: { limit?: number } = {}) {
@@ -729,6 +796,14 @@ function shuffleSongs(songs: CandidateSong[]) {
 
 function emptyScoreBreakdown() {
   return {
+    sceneFitScore: 0,
+    soundExperienceScore: 0,
+    moodScore: 0,
+    energyScore: 0,
+    modeFreshnessScore: 0,
+    behaviorFeedbackScore: 0,
+    playableAvoidScore: 0,
+    profileConfidenceScore: 0,
     longTermPreferenceScore: 0,
     contextMatchScore: 0,
     sourceConfidenceScore: 0,

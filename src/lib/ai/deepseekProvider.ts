@@ -3,6 +3,7 @@ import { z } from "zod";
 import { FallbackAiProvider } from "./fallbackProvider";
 import { AI_TAG_TAXONOMY, filterAiTags, namespaceAiTags } from "./tagTaxonomy";
 import type { AiProvider, AiTraceCall } from "./types";
+import { buildSongProfile } from "@/lib/recommendation/songProfile";
 import type { CandidateSong, ListeningContext, RankedRecommendation } from "@/lib/recommendation/types";
 
 type ChatCompletionParams = Parameters<OpenAI["chat"]["completions"]["create"]>[0];
@@ -334,9 +335,10 @@ function buildRerankRequest(candidates: RankedRecommendation[], context: Listeni
         content: [
           "你是私人音乐推荐排序器，只返回 JSON。",
           "只能从候选歌曲 ID 中选择，不能编造歌曲 ID。",
-          "根据用户意图标签、排除标签、歌曲标签、来源、本地分数和最近播放信息排序。",
+          "根据用户场景意图、歌曲 8 维画像、来源、本地分数、最近播放和用户反馈排序。",
+          "判断时像一个陪用户听歌的朋友：这首歌会不会帮助用户进入当下状态，会不会打扰，是否太困或太吵。",
           `必须返回 ${targetCount} 首，除非候选歌曲不足 ${targetCount} 首。`,
-          "返回 items: [{id, reason, score}]，reason 用中文，简短具体。",
+          "返回 items: [{id, reason, score}]，reason 用中文，简短具体，像朋友解释，不要写模型分数或标签分析。",
           strict ? `上一轮返回数量不足。现在必须返回 ${targetCount} 首有效候选 ID，不要解释。` : ""
         ]
           .filter(Boolean)
@@ -354,9 +356,14 @@ function buildRerankRequest(candidates: RankedRecommendation[], context: Listeni
             album: item.song.albumName,
             tags: item.song.tags,
             sources: item.song.sources,
-            localScore: item.score,
-            recentPlayCount: item.song.recentPlayCount,
-            daysSinceLastPlayed: item.song.daysSinceLastPlayed
+            profile: buildSongProfile(item.song),
+            signals: {
+              localScore: item.score,
+              recentPlayCount: item.song.recentPlayCount,
+              daysSinceLastPlayed: item.song.daysSinceLastPlayed,
+              feedback: item.song.feedback,
+              playable: Boolean(item.song.streamUrl)
+            }
           }))
         })
       }

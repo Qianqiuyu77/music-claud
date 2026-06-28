@@ -77,4 +77,48 @@ describe("recommendation logic", () => {
     expect(ranked[0].song.neteaseSongId).toBe("ai-tagged");
     expect(ranked[0].breakdown.contextMatchScore).toBeGreaterThan(0);
   });
+
+  it("lets unprofiled songs participate with lower profile confidence", () => {
+    const ranked = rankCandidates(
+      [
+        candidate({
+          neteaseSongId: "profiled",
+          sources: ["playlist"],
+          tags: ["ai:tagged", "ai:scene:focus", "ai:mood:calm", "ai:vocal:less_vocal", "ai:rhythm:steady", "ai:distraction:low"]
+        }),
+        candidate({
+          neteaseSongId: "rule-only",
+          sources: ["liked"],
+          tags: ["scene:focus", "mood:calm", "vocal:less_vocal", "rhythm:steady", "distraction:low"]
+        })
+      ],
+      context
+    );
+
+    expect(ranked.map((item) => item.song.neteaseSongId)).toContain("rule-only");
+    expect(ranked[0].song.neteaseSongId).toBe("profiled");
+    expect(ranked[0].breakdown.profileConfidenceScore).toBeGreaterThan(ranked[1].breakdown.profileConfidenceScore);
+  });
+
+  it("prioritizes work-focus scene fit and low-distraction sound experience over generic source strength", () => {
+    const ranked = rankCandidates(
+      [
+        candidate({
+          neteaseSongId: "quiet-work",
+          sources: ["playlist"],
+          tags: ["ai:tagged", "ai:scene:focus", "ai:mood:calm", "ai:energy:low_to_medium", "ai:vocal:less_vocal", "ai:rhythm:steady", "ai:distraction:low"]
+        }),
+        candidate({
+          neteaseSongId: "liked-but-loud",
+          sources: ["liked"],
+          tags: ["ai:tagged", "ai:scene:workout", "ai:energy:high", "ai:vocal:strong_vocal", "ai:rhythm:strong", "ai:distraction:high"]
+        })
+      ],
+      context
+    );
+
+    expect(ranked[0].song.neteaseSongId).toBe("quiet-work");
+    expect(ranked[0].breakdown.sceneFitScore).toBeGreaterThan(0);
+    expect(ranked[0].breakdown.soundExperienceScore).toBeGreaterThan(ranked[1].breakdown.soundExperienceScore);
+  });
 });

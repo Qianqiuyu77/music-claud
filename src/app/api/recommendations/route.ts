@@ -1,8 +1,9 @@
 import { createRecommendationResponse, getMusicRepositoryForApp, hasConfiguredNeteaseCookie } from "@/lib/appServices";
+import type { RecommendationMode, RecommendationScene } from "@/lib/recommendation/types";
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as { prompt?: string; limit?: number; excludeIds?: string[] };
-  const prompt = body.prompt?.trim() ?? "";
+  const body = (await request.json()) as { prompt?: string; text?: string; mode?: RecommendationMode; scene?: RecommendationScene; limit?: number; excludeIds?: string[] };
+  const prompt = (body.text ?? body.prompt)?.trim() ?? "";
   if (!prompt) {
     return Response.json({ error: "请输入当前想听歌的场景。" }, { status: 400 });
   }
@@ -15,6 +16,8 @@ export async function POST(request: Request) {
       await createRecommendationResponse(prompt, undefined, {
         limit: body.limit,
         excludeIds: Array.isArray(body.excludeIds) ? body.excludeIds : [],
+        mode: body.mode,
+        scene: body.scene,
         requireAi: true
       })
     );

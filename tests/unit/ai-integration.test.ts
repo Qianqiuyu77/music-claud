@@ -248,6 +248,23 @@ describe("DeepSeek AI integration", () => {
     expect(client.calls).toHaveLength(2);
     expect(firstPayload.targetCount).toBe(50);
     expect(firstPayload.candidates).toHaveLength(60);
+    expect(firstPayload.candidates[0].profile).toEqual(
+      expect.objectContaining({
+        sceneFit: expect.any(Array),
+        mood: expect.any(Array),
+        energy: expect.any(String),
+        vocal: expect.any(String),
+        rhythm: expect.any(String),
+        distraction: expect.any(String),
+        confidence: expect.any(Number)
+      })
+    );
+    expect(firstPayload.candidates[0].signals).toEqual(
+      expect.objectContaining({
+        localScore: expect.any(Number),
+        playable: true
+      })
+    );
     expect(secondSystem).toContain("必须返回 50 首");
     expect(reranked).toHaveLength(50);
     expect(reranked[0].song.neteaseSongId).toBe("song-1");
@@ -391,6 +408,14 @@ function rankedItem(id: string, tags: string[]): RankedRecommendation {
     score: 1,
     reason: "local reason",
     breakdown: {
+      sceneFitScore: 0,
+      soundExperienceScore: 0,
+      moodScore: 0,
+      energyScore: 0,
+      modeFreshnessScore: 0,
+      behaviorFeedbackScore: 0,
+      playableAvoidScore: 0,
+      profileConfidenceScore: 0,
       longTermPreferenceScore: 0,
       contextMatchScore: 0,
       sourceConfidenceScore: 0,
