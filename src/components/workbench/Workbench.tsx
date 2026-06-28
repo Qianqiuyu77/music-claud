@@ -239,8 +239,9 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
     }
   }
 
-  async function requestRecommendations(append = false) {
+  async function requestRecommendations(append = false, options?: { mode?: RecommendationMode }) {
     const requestPrompt = append ? lastRecommendationPrompt || result?.flow?.input.prompt || prompt : prompt;
+    const requestMode = options?.mode ?? recommendationMode;
     if (!requestPrompt.trim()) {
       setErrorMessage("请输入当前想听歌的场景。");
       return;
@@ -255,7 +256,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
         body: JSON.stringify({
           prompt: requestPrompt,
           text: requestPrompt,
-          mode: recommendationMode,
+          mode: requestMode,
           scene: recommendationScene,
           limit: 12,
           excludeIds
@@ -284,6 +285,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
         setLastRecommendationPrompt(requestPrompt);
         setPrompt("");
         setAutoPlayToken((value) => value + 1);
+        if (options?.mode) setRecommendationMode(options.mode);
       }
     } finally {
       setLoading(false);
@@ -327,7 +329,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
         onPromptChange={setPrompt}
         onModeChange={setRecommendationMode}
         onSceneChange={setRecommendationScene}
-        onRecommend={() => requestRecommendations(false)}
+        onRecommend={(options) => requestRecommendations(false, options)}
         onLoadMore={() => requestRecommendations(true)}
         loading={loading}
         disabledReason={prompt.trim() ? undefined : "prompt"}

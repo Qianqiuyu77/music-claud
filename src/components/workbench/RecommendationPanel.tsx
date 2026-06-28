@@ -18,7 +18,7 @@ type Props = {
   onPromptChange: (value: string) => void;
   onModeChange?: (value: RecommendationMode) => void;
   onSceneChange?: (value: RecommendationScene) => void;
-  onRecommend: () => void;
+  onRecommend: (options?: { mode?: RecommendationMode }) => void;
   onLoadMore?: () => void;
   loading: boolean;
   disabledReason?: "checking" | "login" | "prompt";
@@ -77,6 +77,7 @@ export function RecommendationPanel({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [sceneDialogOpen, setSceneDialogOpen] = useState(false);
+  const [pendingMode, setPendingMode] = useState<RecommendationMode | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playerView, setPlayerView] = useState<"cover" | "lyrics">("cover");
@@ -192,7 +193,7 @@ export function RecommendationPanel({
   function togglePlayback() {
     const audio = audioRef.current;
     if (!audio || !activePlaybackSrc) return;
-    if (audio.paused) {
+    if (!isPlaying) {
       shouldAutoPlayRef.current = true;
       setPlaybackNotice(null);
       playAudio(audio, setIsPlaying, setPlaybackNotice);
@@ -262,6 +263,21 @@ export function RecommendationPanel({
   function chooseScene(scene: RecommendationScene, nextPrompt: string) {
     onSceneChange(scene);
     if (!prompt.trim()) onPromptChange(nextPrompt);
+  }
+
+  function requestModeChange(mode: RecommendationMode) {
+    if (mode === recommendationMode) return;
+    setPendingMode(mode);
+  }
+
+  function confirmModeChange(playNow: boolean) {
+    if (!pendingMode) return;
+    onModeChange(pendingMode);
+    setPendingMode(null);
+    if (playNow) {
+      setSceneDialogOpen(false);
+      onRecommend({ mode: pendingMode });
+    }
   }
 
   async function showLyrics() {
@@ -539,7 +555,7 @@ export function RecommendationPanel({
             </label>
             <div className="mode-segment" aria-label="推荐模式">
               {modeOptions.map((option) => (
-                <button key={option.value} type="button" className={recommendationMode === option.value ? "is-selected" : undefined} onClick={() => onModeChange(option.value)}>
+                <button key={option.value} type="button" className={recommendationMode === option.value ? "is-selected" : undefined} onClick={() => requestModeChange(option.value)}>
                   {option.label}
                 </button>
               ))}
@@ -556,6 +572,26 @@ export function RecommendationPanel({
               {actionLabel}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {pendingMode ? (
+        <div className="mode-confirm-overlay" role="dialog" aria-modal="true" aria-label="切换推荐模式">
+          <section className="mode-confirm-dialog">
+            <div>
+              <p className="eyebrow">推荐模式</p>
+              <h2>切换到{modeLabel(pendingMode)}？</h2>
+            </div>
+            <button type="button" onClick={() => confirmModeChange(false)}>
+              下一首开始
+            </button>
+            <button type="button" className="primary-button" onClick={() => confirmModeChange(true)} disabled={actionDisabled}>
+              立即播放新队列
+            </button>
+            <button type="button" className="ghost-button" onClick={() => setPendingMode(null)}>
+              取消
+            </button>
+          </section>
         </div>
       ) : null}
 
@@ -611,6 +647,14 @@ export function RecommendationPanel({
                 </span>
                 <span className="chat-island-progress" style={{ "--timeline-progress": `${progressPercent}%` } as CSSProperties} />
               </button>
+              <div className="chat-mini-controls" aria-label="聊天播放控制">
+                <button type="button" aria-label={isPlaying ? "聊天暂停" : "聊天播放"} onClick={togglePlayback} disabled={!activePlaybackSrc}>
+                  {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                </button>
+                <button type="button" aria-label="聊天下一首" onClick={() => selectIndex(activeIndex + 1)} disabled={items.length < 2}>
+                  <ChevronRight size={17} />
+                </button>
+              </div>
             </header>
             <div className="chat-thread">
               {chatMessages.map((message) => (

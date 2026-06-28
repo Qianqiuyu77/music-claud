@@ -146,6 +146,7 @@ describe("Workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
     fireEvent.click(screen.getByRole("button", { name: "探索新歌" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一首开始" }));
     fireEvent.click(screen.getByRole("button", { name: "写代码" }));
     fireEvent.change(screen.getByRole("textbox", { name: /听歌场景/i }), { target: { value: "别太困，有点律动" } });
     fireEvent.click(screen.getByRole("button", { name: /生成推荐/i }));
@@ -166,6 +167,69 @@ describe("Workbench", () => {
         })
       );
     });
+
+    fetchMock.mockRestore();
+  });
+
+  it("confirms mode switching before replacing the current queue", async () => {
+    const onModeChange = vi.fn();
+    const onRecommend = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    render(
+      <RecommendationPanel
+        prompt="coding"
+        recommendationMode="balanced"
+        recommendationScene="work_focus"
+        onPromptChange={() => undefined}
+        onModeChange={onModeChange}
+        onRecommend={onRecommend}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
+    fireEvent.click(screen.getByRole("button", { name: "探索新歌" }));
+
+    expect(screen.getByRole("dialog", { name: "切换推荐模式" })).toBeInTheDocument();
+    expect(onModeChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "下一首开始" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "立即播放新队列" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一首开始" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("explore");
+    expect(onRecommend).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "切换推荐模式" })).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("passes the pending mode into immediate mode replacement", async () => {
+    const onModeChange = vi.fn();
+    const onRecommend = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    render(
+      <RecommendationPanel
+        prompt="coding"
+        recommendationMode="balanced"
+        recommendationScene="work_focus"
+        onPromptChange={() => undefined}
+        onModeChange={onModeChange}
+        onRecommend={onRecommend}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
+    fireEvent.click(screen.getByRole("button", { name: "探索新歌" }));
+    fireEvent.click(screen.getByRole("button", { name: "立即播放新队列" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("explore");
+    expect(onRecommend).toHaveBeenCalledWith({ mode: "explore" });
 
     fetchMock.mockRestore();
   });
@@ -769,6 +833,34 @@ describe("Workbench", () => {
       })
     );
     expect(screen.queryByText(/后面会接入真正的对话接口/)).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("keeps mini player controls available inside companion chat", async () => {
+    const playMock = vi.mocked(HTMLMediaElement.prototype.play);
+    const pauseMock = vi.mocked(HTMLMediaElement.prototype.pause);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    const { container } = render(
+      <RecommendationPanel
+        prompt="coding"
+        onPromptChange={() => undefined}
+        onRecommend={() => undefined}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "打开一起听" }));
+    fireEvent.click(screen.getByRole("button", { name: "聊天播放" }));
+    await waitFor(() => expect(playMock).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "聊天下一首" }));
+    await waitFor(() => expect(container.querySelector(".player-shell")).toHaveTextContent("真实歌曲 B"));
+
+    fireEvent.click(screen.getByRole("button", { name: "聊天暂停" }));
+    expect(pauseMock).toHaveBeenCalled();
 
     fetchMock.mockRestore();
   });

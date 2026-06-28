@@ -1573,6 +1573,16 @@ textarea:focus {
   padding: 16px;
 }
 
+.mode-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  display: grid;
+  place-items: center;
+  background: rgba(9, 11, 15, 0.58);
+  padding: 16px;
+}
+
 .flow-overlay {
   position: fixed;
   inset: 0;
@@ -2508,6 +2518,50 @@ textarea:focus {
   min-height: 46px;
 }
 
+.mode-confirm-dialog {
+  display: grid;
+  gap: 10px;
+  width: min(360px, 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
+    rgba(18, 19, 23, 0.86);
+  color: #fff;
+  box-shadow:
+    0 24px 72px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(28px) saturate(1.18);
+  -webkit-backdrop-filter: blur(28px) saturate(1.18);
+  padding: 16px;
+}
+
+.mode-confirm-dialog h2 {
+  margin: 2px 0 6px;
+  color: #fffaf2;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.mode-confirm-dialog button {
+  width: 100%;
+  min-height: 42px;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 250, 242, 0.9);
+}
+
+.mode-confirm-dialog .primary-button {
+  background: #fffaf2;
+  color: #b32c25;
+  border-color: #fffaf2;
+}
+
+.mode-confirm-dialog .ghost-button {
+  background: transparent;
+  color: rgba(255, 250, 242, 0.66);
+}
+
 .chat-overlay {
   position: fixed;
   inset: 0;
@@ -2532,7 +2586,7 @@ textarea:focus {
 
 .chat-header {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
 }
@@ -2614,6 +2668,35 @@ textarea:focus {
   border-radius: 999px;
   background:
     linear-gradient(90deg, #fffaf2 var(--timeline-progress), rgba(255, 255, 255, 0.16) var(--timeline-progress));
+}
+
+.chat-mini-controls {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 36px);
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-mini-controls button {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 50%;
+  border-color: rgba(255, 255, 255, 0.16);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
+    rgba(14, 15, 18, 0.55);
+  color: #fffaf2;
+  padding: 0;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20px) saturate(1.12);
+  -webkit-backdrop-filter: blur(20px) saturate(1.12);
+}
+
+.chat-mini-controls button:disabled {
+  opacity: 0.45;
 }
 
 .chat-thread {
@@ -3155,13 +3238,65 @@ textarea:focus {
     padding: 8px;
   }
 
+  .mode-confirm-overlay {
+    padding: 8px;
+  }
+
   .scene-dialog {
     max-height: calc(100dvh - 16px);
     padding: 12px;
   }
 
+  .mode-confirm-dialog {
+    padding: 12px;
+  }
+
   .scene-input textarea {
     min-height: 108px;
+  }
+
+  .chat-page {
+    gap: 10px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .chat-header {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .chat-back {
+    width: 40px;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .chat-island {
+    min-height: 50px;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 8px;
+    padding: 7px 10px 8px 7px;
+  }
+
+  .chat-island-cover {
+    width: 36px;
+  }
+
+  .chat-island-progress {
+    left: 50px;
+    right: 12px;
+  }
+
+  .chat-mini-controls {
+    grid-template-columns: repeat(2, 32px);
+    gap: 4px;
+  }
+
+  .chat-mini-controls button {
+    width: 32px;
+    min-width: 32px;
+    min-height: 32px;
   }
 
   .flow-overlay {
