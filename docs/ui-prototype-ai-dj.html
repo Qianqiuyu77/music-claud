@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>移动音乐播放器原型</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --text: #fffaf2;
+        --muted: rgba(255, 250, 242, 0.66);
+        --soft: rgba(255, 250, 242, 0.42);
+        --line: rgba(255, 255, 255, 0.14);
+        --glass: rgba(255, 255, 255, 0.1);
+        --glass-strong: rgba(255, 255, 255, 0.16);
+        --accent: #ff5b4c;
+        --mint: #6de4cb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 18%, rgba(255, 91, 76, 0.24), transparent 30%),
+          linear-gradient(160deg, #12161c 0%, #20181d 48%, #0d1014 100%);
+        color: var(--text);
+        font-family: "Microsoft YaHei UI", "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      button,
+      textarea,
+      summary {
+        font: inherit;
+      }
+
+      button,
+      summary {
+        cursor: pointer;
+      }
+
+      .phone {
+        position: relative;
+        width: min(100vw, 430px);
+        min-height: 100vh;
+        overflow: hidden;
+        isolation: isolate;
+        background:
+          radial-gradient(circle at 50% 28%, rgba(255, 179, 93, 0.28), transparent 26%),
+          radial-gradient(circle at 22% 12%, rgba(109, 228, 203, 0.2), transparent 24%),
+          linear-gradient(180deg, #171b22 0%, #121218 58%, #0c0f13 100%);
+      }
+
+      .phone::before {
+        content: "";
+        position: absolute;
+        inset: -120px -90px auto;
+        height: 430px;
+        z-index: -2;
+        background:
+          radial-gradient(circle at 50% 52%, rgba(255, 91, 76, 0.72), transparent 26%),
+          radial-gradient(circle at 30% 40%, rgba(255, 190, 91, 0.44), transparent 24%),
+          radial-gradient(circle at 70% 34%, rgba(109, 228, 203, 0.38), transparent 22%);
+        filter: blur(28px) saturate(1.14);
+        opacity: 0.88;
+      }
+
+      .phone::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%),
+          linear-gradient(0deg, rgba(7, 9, 12, 0.82), transparent 42%);
+      }
+
+      .screen {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        min-height: 100vh;
+        min-height: 100dvh;
+        padding: max(18px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 42px;
+      }
+
+      .icon-button {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        background: var(--glass);
+        color: var(--text);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      }
+
+      .now-label {
+        text-align: center;
+      }
+
+      .now-label span {
+        display: block;
+        color: var(--soft);
+        font-size: 12px;
+        line-height: 1.2;
+      }
+
+      .now-label strong {
+        display: block;
+        max-width: 160px;
+        overflow: hidden;
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.3;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .hero {
+        display: grid;
+        align-content: center;
+        gap: clamp(20px, 5.2vh, 38px);
+        min-height: 0;
+        padding: 20px 0 8px;
+      }
+
+      .cover-wrap {
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+
+      .cover-glow {
+        position: absolute;
+        width: min(74vw, 306px);
+        aspect-ratio: 1;
+        border-radius: 34px;
+        background:
+          radial-gradient(circle at 32% 24%, #ffd878, transparent 26%),
+          radial-gradient(circle at 70% 72%, #6de4cb, transparent 26%),
+          linear-gradient(135deg, #ff5b4c, #44243b 56%, #151c29);
+        filter: blur(30px);
+        opacity: 0.72;
+        transform: translateY(22px) scale(0.94);
+      }
+
+      .cover {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: min(72vw, 292px);
+        aspect-ratio: 1;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 30px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 35% 30%, #ffd878 0 12%, transparent 13%),
+          radial-gradient(circle at 66% 68%, #6de4cb 0 18%, transparent 19%),
+          linear-gradient(145deg, #ff5b4c 0%, #8d3555 44%, #172236 100%);
+        box-shadow:
+          0 34px 80px rgba(0, 0, 0, 0.42),
+          inset 0 1px 0 rgba(255, 255, 255, 0.24);
+      }
+
+      .cover::before {
+        content: "";
+        position: absolute;
+        inset: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 22px;
+      }
+
+      .cover-mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 108px;
+        height: 108px;
+        border-radius: 50%;
+        background: rgba(12, 15, 19, 0.76);
+        color: #fffaf2;
+        font-size: 36px;
+        font-weight: 900;
+        letter-spacing: 0;
+        box-shadow:
+          0 0 0 10px rgba(255, 255, 255, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.18);
+      }
+
+      .song {
+        text-align: center;
+      }
+
+      .song h1 {
+        margin: 0 0 8px;
+        font-size: clamp(28px, 8vw, 38px);
+        line-height: 1.1;
+        letter-spacing: 0;
+      }
+
+      .song p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      .mood-row,
+      .preset-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .mood-row {
+        justify-content: center;
+        margin-top: 15px;
+      }
+
+      .pill,
+      .preset {
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 250, 242, 0.74);
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+
+      .player {
+        display: grid;
+        gap: 16px;
+        padding-top: 4px;
+      }
+
+      .progress {
+        display: grid;
+        gap: 8px;
+      }
+
+      .track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+        overflow: hidden;
+      }
+
+      .track span {
+        display: block;
+        width: 44%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #fffaf2, #ffd0c8);
+      }
+
+      .times {
+        display: flex;
+        justify-content: space-between;
+        color: var(--soft);
+        font-size: 12px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        align-items: center;
+        gap: 10px;
+      }
+
+      .control {
+        display: grid;
+        place-items: center;
+        width: 100%;
+        height: 48px;
+        border: 0;
+        background: transparent;
+        color: rgba(255, 250, 242, 0.78);
+        font-size: 22px;
+      }
+
+      .play {
+        width: 68px;
+        height: 68px;
+        justify-self: center;
+        border-radius: 50%;
+        background: #fffaf2;
+        color: #b32c25;
+        font-size: 26px;
+        box-shadow: 0 18px 46px rgba(255, 91, 76, 0.24);
+      }
+
+      .listen-request {
+        position: relative;
+        z-index: 4;
+      }
+
+      .listen-request summary {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 58px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+        padding: 9px 12px;
+        list-style: none;
+        box-shadow:
+          0 12px 34px rgba(0, 0, 0, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      }
+
+      .listen-request summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .spark {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #fffaf2;
+        color: #b32c25;
+        font-size: 18px;
+      }
+
+      .listen-title,
+      .listen-subtitle {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .listen-title {
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .listen-subtitle {
+        color: var(--soft);
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      .chevron {
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: calc(100% + 10px);
+        display: grid;
+        gap: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.09)),
+          rgba(17, 18, 23, 0.92);
+        padding: 14px;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(24px) saturate(1.14);
+      }
+
+      .sheet h2 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.25;
+      }
+
+      .sheet p {
+        margin: -6px 0 0;
+        color: var(--soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .scene-input {
+        width: 100%;
+        min-height: 88px;
+        resize: none;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        background: rgba(10, 12, 16, 0.58);
+        color: var(--text);
+        padding: 11px 12px;
+        outline: none;
+      }
+
+      .scene-input::placeholder {
+        color: rgba(255, 250, 242, 0.36);
+      }
+
+      .preset {
+        min-height: 34px;
+        padding: 0 11px;
+      }
+
+      .generate {
+        min-height: 46px;
+        border: 0;
+        border-radius: 8px;
+        background: #fffaf2;
+        color: #b32c25;
+        font-weight: 900;
+      }
+
+      .queue-strip {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 64px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--glass);
+        padding: 9px 11px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .mini-cover {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, var(--accent), var(--mint));
+      }
+
+      .queue-strip strong,
+      .queue-strip span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .queue-strip strong {
+        font-size: 14px;
+        margin-bottom: 3px;
+      }
+
+      .queue-strip span {
+        color: var(--soft);
+        font-size: 12px;
+      }
+
+      .queue-strip button {
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 20px;
+      }
+
+      @media (max-height: 760px) {
+        .screen {
+          padding: 14px 18px;
+        }
+
+        .hero {
+          gap: 16px;
+          padding-top: 12px;
+        }
+
+        .cover,
+        .cover-glow {
+          width: min(58vw, 236px);
+        }
+
+        .mood-row {
+          margin-top: 10px;
+        }
+
+        .queue-strip {
+          display: none;
+        }
+      }
+
+      @media (min-width: 700px) {
+        body {
+          padding: 22px;
+        }
+
+        .phone {
+          min-height: 844px;
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 34px;
+          box-shadow: 0 34px 110px rgba(0, 0, 0, 0.52);
+        }
+
+        .screen {
+          min-height: 844px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="phone" aria-label="移动音乐播放器">
+      <div class="screen">
+        <header class="topbar">
+          <button class="icon-button" aria-label="返回">‹</button>
+          <div class="now-label">
+            <span>正在播放</span>
+            <strong>今日私人推荐</strong>
+          </div>
+          <button class="icon-button" aria-label="更多">⋯</button>
+        </header>
+
+        <section class="hero">
+          <div class="cover-wrap">
+            <div class="cover-glow" aria-hidden="true"></div>
+            <div class="cover" aria-label="专辑封面">
+              <div class="cover-mark">AI</div>
+            </div>
+          </div>
+
+          <div class="song">
+            <h1>城市夜航</h1>
+            <p>椅子乐团 · Midnight Radio</p>
+            <div class="mood-row" aria-label="歌曲氛围">
+              <span class="pill">夜晚</span>
+              <span class="pill">放松</span>
+              <span class="pill">轻电子</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="player" aria-label="播放控制">
+          <div class="progress">
+            <div class="track" aria-hidden="true"><span></span></div>
+            <div class="times">
+              <span>01:18</span>
+              <span>03:42</span>
+            </div>
+          </div>
+
+          <div class="controls">
+            <button class="control" aria-label="喜欢">♡</button>
+            <button class="control" aria-label="上一首">‹</button>
+            <button class="control play" aria-label="播放">▶</button>
+            <button class="control" aria-label="下一首">›</button>
+            <button class="control" aria-label="播放列表">≡</button>
+          </div>
+
+          <details class="listen-request">
+            <summary aria-label="输入现在想听的歌">
+              <span class="spark">✦</span>
+              <span>
+                <span class="listen-title">我想听...</span>
+                <span class="listen-subtitle">输入心情或选择一个场景</span>
+              </span>
+              <span class="chevron">⌃</span>
+            </summary>
+            <div class="sheet">
+              <h2>现在想听什么？</h2>
+              <p>告诉我场景、心情、节奏，或者直接点一个预设。</p>
+              <textarea class="scene-input" placeholder="比如：下班路上，想听轻松一点、有城市感的歌"></textarea>
+              <div class="preset-row" aria-label="预设场景">
+                <button class="preset">下班路上</button>
+                <button class="preset">深夜放松</button>
+                <button class="preset">写代码</button>
+                <button class="preset">想听新歌</button>
+                <button class="preset">运动一下</button>
+              </div>
+              <button class="generate">生成这一刻的歌单</button>
+            </div>
+          </details>
+
+          <div class="queue-strip" aria-label="下一首">
+            <div class="mini-cover"></div>
+            <div>
+              <strong>低速公路</strong>
+              <span>下一首 · 落日飞车</span>
+            </div>
+            <button aria-label="打开播放列表">›</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,50 @@
+(node:44696) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:44696) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ ./node_modules/@NeteaseCloudMusicApiEnhanced/api/main.js:1:1
+Module not found: Can't resolve 'fs'
+> 1 | const fs = require('fs')
+    | ^
+  2 | const path = require('path')
+  3 | const tmpPath = require('os').tmpdir()
+  4 | const { cookieToJson } = require('./util')
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./src/lib/netease/cloudProvider.ts
+./src/lib/playback/playbackService.ts
+./src/components/workbench/RecommendationPanel.tsx
+./src/components/workbench/Workbench.tsx
+ ⨯ ./node_modules/@NeteaseCloudMusicApiEnhanced/api/main.js:1:1
+Module not found: Can't resolve 'fs'
+> 1 | const fs = require('fs')
+    | ^
+  2 | const path = require('path')
+  3 | const tmpPath = require('os').tmpdir()
+  4 | const { cookieToJson } = require('./util')
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./src/lib/netease/cloudProvider.ts
+./src/lib/playback/playbackService.ts
+./src/components/workbench/RecommendationPanel.tsx
+./src/components/workbench/Workbench.tsx
+ ⨯ ./node_modules/@NeteaseCloudMusicApiEnhanced/api/main.js:1:1
+Module not found: Can't resolve 'fs'
+> 1 | const fs = require('fs')
+    | ^
+  2 | const path = require('path')
+  3 | const tmpPath = require('os').tmpdir()
+  4 | const { cookieToJson } = require('./util')
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./src/lib/netease/cloudProvider.ts
+./src/lib/playback/playbackService.ts
+./src/components/workbench/RecommendationPanel.tsx
+./src/components/workbench/Workbench.tsx
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload

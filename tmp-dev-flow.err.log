@@ -1,0 +1,67 @@
+(node:31076) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31076) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+[Error: failed to pipe response] {
+  [cause]: [TypeError: terminated] {
+    [cause]: [Error [SocketError]: other side closed] {
+      code: 'UND_ERR_SOCKET',
+      socket: {
+        localAddress: '192.168.0.6',
+        localPort: 62398,
+        remoteAddress: '120.255.86.10',
+        remotePort: 80,
+        remoteFamily: 'IPv4',
+        timeout: undefined,
+        bytesWritten: 516,
+        bytesRead: 10453505
+      }
+    }
+  }
+}
+ ⨯ Error: Cannot find module './873.js'
+Require stack:
+- D:\myProject\ai-music-claude\.next\server\webpack-runtime.js
+- D:\myProject\ai-music-claude\.next\server\app\flow\page.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\server\require.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\server\load-components.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\build\utils.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\build\swc\options.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\build\swc\index.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\build\analysis\parse-module.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\build\analysis\get-page-static-info.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\server\lib\router-server.js
+- D:\myProject\ai-music-claude\node_modules\next\dist\server\lib\start-server.js
+    at <unknown> (D:\myProject\ai-music-claude\.next\server\app\page.js:2:8140)
+    at Object.<anonymous> (D:\myProject\ai-music-claude\.next\server\app\page.js:2:8202) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [Array],
+  page: '/'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'D:\myProject\ai-music-claude\.next\server\app\flow\page.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\myProject\\ai-music-claude\\.next\\server\\app\\flow\\page.js',
+  page: '/flow'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'D:\myProject\ai-music-claude\.next\server\pages\_document.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\myProject\\ai-music-claude\\.next\\server\\pages\\_document.js'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'D:\myProject\ai-music-claude\.next\server\app\page.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\myProject\\ai-music-claude\\.next\\server\\app\\page.js',
+  page: '/'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'D:\myProject\ai-music-claude\.next\server\pages\_document.js'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'D:\\myProject\\ai-music-claude\\.next\\server\\pages\\_document.js'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\myProject\ai-music-claude\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'D:\myProject\ai-music-claude\.next\cache\webpack\client-development-fallback\0.pack.gz'

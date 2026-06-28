@@ -1,0 +1,17 @@
+
+> ai-music-claude@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.19
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.0.103:3000
+   - Environments: .env.local
+   - Experiments (use with caution):
+     · serverActions
+
+ ✓ Starting...
+ ✓ Ready in 2.1s
+ ○ Compiling /api/recommendations ...
+ ✓ Compiled /api/recommendations in 513ms (508 modules)
+ POST /api/recommendations 200 in 6353ms
+ POST /api/recommendations 200 in 5749ms

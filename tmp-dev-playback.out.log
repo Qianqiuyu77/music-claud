@@ -1,0 +1,348 @@
+
+> ai-music-claude@0.1.0 dev
+> next dev --hostname 127.0.0.1
+
+   ▲ Next.js 15.5.19
+   - Local:        http://127.0.0.1:3000
+   - Network:      http://127.0.0.1:3000
+   - Environments: .env.local
+   - Experiments (use with caution):
+     · serverActions
+
+ ✓ Starting...
+ ✓ Ready in 2.2s
+ ○ Compiling / ...
+ ✓ Compiled / in 971ms (579 modules)
+ GET / 200 in 1399ms
+ GET / 200 in 62ms
+ GET / 200 in 43ms
+ GET / 200 in 56ms
+ ○ Compiling /api/recommendations ...
+ ✓ Compiled /api/recommendations in 1128ms (816 modules)
+ GET /api/library 200 in 1400ms
+ GET /api/login/qr 200 in 1493ms
+ POST /api/recommendations 200 in 8764ms
+ ✓ Compiled /api/playback in 284ms (819 modules)
+◇ injected env (0) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+ GET /api/playback?id=30431376 206 in 2067ms
+ GET /api/playback?id=436514312 200 in 26ms
+ ✓ Compiled /admin in 290ms (821 modules)
+ GET /admin 200 in 533ms
+ GET /api/login/qr 200 in 84ms
+ GET /api/library 200 in 86ms
+ GET /api/playback?id=436514312 206 in 880ms
+ GET / 200 in 53ms
+ GET /api/login/qr 200 in 12ms
+ GET /api/library 200 in 64ms
+ GET / 200 in 56ms
+ GET /api/login/qr 200 in 17ms
+ GET /api/library 200 in 101ms
+ POST /api/recommendations 200 in 7292ms
+ ✓ Compiled /api/feedback in 449ms (821 modules)
+ POST /api/feedback 200 in 598ms
+ POST /api/feedback 200 in 12ms
+ POST /api/feedback 200 in 12ms
+ GET /api/playback?id=1374061028 206 in 80712ms
+ GET /api/playback?id=1404511131 206 in 80472ms
+ GET / 200 in 120ms
+ GET /api/login/qr 200 in 14ms
+ GET /api/library 200 in 66ms
+ GET /api/playback?id=1922888354 206 in 28115ms
+ GET /api/playback?id=2610427881 206 in 30651ms
+ GET /api/playback?id=2602348432 206 in 15317ms
+ GET /api/playback?id=2602348432 206 in 27131ms
+ GET / 200 in 45ms
+ GET /api/login/qr 200 in 10ms
+ GET /api/library 200 in 57ms
+ GET /api/playback?id=553310243 206 in 132923ms
+ GET / 200 in 47ms
+ GET /api/library 200 in 108ms
+ GET /api/login/qr 200 in 116ms
+ GET / 200 in 30ms
+ GET /api/login/qr 200 in 10ms
+ GET /api/library 200 in 59ms
+ GET / 200 in 97ms
+ GET / 200 in 96ms
+ ✓ Compiled in 196ms (580 modules)
+ GET / 200 in 86ms
+ GET / 200 in 89ms
+ GET / 200 in 57ms
+ GET / 200 in 58ms
+ ✓ Compiled in 106ms (580 modules)
+ GET / 200 in 60ms
+ GET / 200 in 61ms
+ ✓ Compiled /_error in 764ms (927 modules)
+ GET / 500 in 1143ms
+ GET / 500 in 1143ms
+ GET / 200 in 62ms
+ GET / 200 in 62ms
+ GET / 200 in 26ms
+ GET / 200 in 27ms
+ GET / 200 in 20ms
+ GET / 200 in 22ms
+ GET / 200 in 73ms
+ GET / 200 in 36ms
+ ✓ Compiled /api/library in 273ms (765 modules)
+ ✓ Compiled in 0ms (767 modules)
+ ✓ Compiled in 0ms (767 modules)
+ ✓ Compiled in 0ms (767 modules)
+ GET /api/login/qr 200 in 588ms
+ GET /api/login/qr 200 in 457ms
+ GET /api/library 200 in 689ms
+ GET /api/library 200 in 821ms
+ GET / 200 in 537ms
+ GET / 200 in 536ms
+ GET / 200 in 26ms
+ GET / 200 in 24ms
+ ✓ Compiled in 270ms (833 modules)
+ ✓ Compiled in 192ms (833 modules)
+ ✓ Compiled in 122ms (833 modules)
+ ✓ Compiled in 589ms (847 modules)
+ GET / 200 in 87ms
+ GET / 200 in 87ms
+ ✓ Compiled in 125ms (847 modules)
+ GET / 200 in 67ms
+ GET / 200 in 68ms
+ ✓ Compiled in 103ms (847 modules)
+ GET / 200 in 63ms
+ GET / 200 in 61ms
+ ✓ Compiled in 131ms (847 modules)
+ GET / 200 in 46ms
+ GET / 200 in 46ms
+ ✓ Compiled in 145ms (847 modules)
+ GET / 200 in 40ms
+ GET / 200 in 41ms
+ ✓ Compiled in 111ms (847 modules)
+ GET / 200 in 43ms
+ GET / 200 in 43ms
+ ✓ Compiled /_error in 252ms (929 modules)
+ GET / 500 in 1794ms
+ GET / 500 in 37ms
+ GET / 500 in 30ms
+ GET / 500 in 32ms
+ GET / 500 in 37ms
+ GET / 500 in 30ms
+ ✓ Compiled /_not-found in 197ms (934 modules)
+ GET / 500 in 277ms
+ GET / 500 in 22ms
+ GET / 500 in 69ms
+ GET / 500 in 25ms
+ GET / 500 in 69ms
+ GET / 500 in 26ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 70ms
+ GET / 500 in 21ms
+ GET / 500 in 85ms
+ GET / 500 in 30ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 67ms
+ GET / 500 in 24ms
+ GET / 500 in 70ms
+ GET / 500 in 26ms
+ GET / 500 in 67ms
+ GET / 500 in 22ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 68ms
+ GET / 500 in 21ms
+ GET / 500 in 82ms
+ GET / 500 in 28ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 67ms
+ GET / 500 in 25ms
+ GET / 500 in 71ms
+ GET / 500 in 28ms
+ GET / 500 in 66ms
+ GET / 500 in 21ms
+ GET / 500 in 65ms
+ GET / 500 in 23ms
+ GET / 500 in 70ms
+ GET / 500 in 21ms
+ GET / 500 in 79ms
+ GET / 500 in 27ms
+ GET / 500 in 67ms
+ GET / 500 in 22ms
+ GET / 500 in 67ms
+ GET / 500 in 25ms
+ GET / 500 in 70ms
+ GET / 500 in 27ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 74ms
+ GET / 500 in 22ms
+ GET / 500 in 79ms
+ GET / 500 in 28ms
+ GET / 500 in 66ms
+ GET / 500 in 22ms
+ GET / 500 in 67ms
+ GET / 500 in 23ms
+ GET / 500 in 69ms
+ GET / 500 in 27ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 71ms
+ GET / 500 in 22ms
+ GET / 500 in 82ms
+ GET / 500 in 28ms
+ GET / 500 in 65ms
+ GET / 500 in 21ms
+ GET / 500 in 70ms
+ GET / 500 in 25ms
+ GET / 500 in 69ms
+ GET / 500 in 27ms
+ GET / 500 in 63ms
+ GET / 500 in 21ms
+ GET / 500 in 62ms
+ GET / 500 in 21ms
+ GET / 500 in 70ms
+ GET / 500 in 21ms
+ GET / 500 in 85ms
+ GET / 500 in 32ms
+ GET / 500 in 67ms
+ GET / 500 in 24ms
+ GET / 500 in 68ms
+ GET / 500 in 24ms
+ GET / 500 in 68ms
+ GET / 500 in 26ms
+ GET / 500 in 63ms
+ GET / 500 in 22ms
+ GET / 500 in 64ms
+ GET / 500 in 22ms
+ GET / 500 in 67ms
+ GET / 500 in 21ms
+ GET / 500 in 83ms
+ GET / 500 in 28ms
+ GET / 500 in 66ms
+ GET / 500 in 21ms
+ GET / 500 in 71ms
+ GET / 500 in 25ms
+ GET / 500 in 72ms
+ GET / 500 in 28ms
+ GET / 500 in 62ms
+ GET / 500 in 21ms
+ GET / 500 in 66ms
+ GET / 500 in 22ms
+ GET / 500 in 67ms
+ GET / 500 in 21ms
+ GET / 500 in 79ms
+ GET / 500 in 28ms
+ GET / 500 in 66ms
+ GET / 500 in 22ms
+ GET / 500 in 68ms
+ GET / 500 in 24ms
+ GET / 500 in 70ms
+ GET / 500 in 27ms
+ GET / 500 in 64ms
+ GET / 500 in 22ms
+ GET / 500 in 69ms
+ GET / 500 in 23ms
+ GET / 500 in 69ms
+ GET / 500 in 22ms
+ GET / 500 in 82ms
+ GET / 500 in 29ms
+ GET / 500 in 67ms
+ GET / 500 in 23ms
+ GET / 500 in 70ms
+ GET / 500 in 25ms
+ GET / 500 in 69ms
+ GET / 500 in 26ms
+ GET / 500 in 66ms
+ GET / 500 in 22ms
+ GET / 500 in 69ms
+ GET / 500 in 22ms
+ GET / 500 in 69ms
+ GET / 500 in 22ms
+ GET / 500 in 81ms
+ GET / 500 in 28ms
+ GET / 500 in 66ms
+ GET / 500 in 23ms
+ GET / 500 in 69ms
+ GET / 500 in 25ms
+ GET / 500 in 71ms
+ GET / 500 in 27ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 69ms
+ GET / 500 in 22ms
+ GET / 500 in 78ms
+ GET / 500 in 27ms
+ GET / 500 in 67ms
+ GET / 500 in 23ms
+ GET / 500 in 67ms
+ GET / 500 in 25ms
+ GET / 500 in 72ms
+ GET / 500 in 27ms
+ GET / 500 in 69ms
+ GET / 500 in 23ms
+ GET / 500 in 67ms
+ GET / 500 in 22ms
+ GET / 500 in 66ms
+ GET / 500 in 20ms
+ GET / 500 in 81ms
+ GET / 500 in 28ms
+ GET / 500 in 67ms
+ GET / 500 in 23ms
+ GET / 500 in 69ms
+ GET / 500 in 26ms
+ GET / 500 in 72ms
+ GET / 500 in 28ms
+ GET / 500 in 66ms
+ GET / 500 in 22ms
+ GET / 500 in 63ms
+ GET / 500 in 21ms
+ GET / 500 in 66ms
+ GET / 500 in 21ms
+ GET / 500 in 78ms
+ GET / 500 in 26ms
+ GET / 500 in 63ms
+ GET / 500 in 21ms
+ GET / 500 in 69ms
+ GET / 500 in 25ms
+ GET / 500 in 69ms
+ GET / 500 in 28ms
+ GET / 500 in 64ms
+ GET / 500 in 22ms
+ GET / 500 in 64ms
+ GET / 500 in 21ms
+ GET / 500 in 69ms
+ GET / 500 in 21ms
+ GET / 500 in 79ms
+ GET / 500 in 27ms
+ GET / 500 in 66ms
+ GET / 500 in 22ms
+ GET / 500 in 68ms
+ GET / 500 in 24ms
+ GET / 500 in 69ms
+ GET / 500 in 28ms
+ GET / 500 in 63ms
+ GET / 500 in 22ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 69ms
+ GET / 500 in 21ms
+ GET / 500 in 78ms
+ GET / 500 in 27ms
+ GET / 500 in 62ms
+ GET / 500 in 20ms
+ GET / 500 in 66ms
+ GET / 500 in 25ms
+ GET / 500 in 69ms
+ GET / 500 in 27ms
+ GET / 500 in 65ms
+ GET / 500 in 22ms
+ GET / 500 in 63ms
+ GET / 500 in 22ms
+ GET / 500 in 67ms
+ GET / 500 in 21ms
+[?25h
