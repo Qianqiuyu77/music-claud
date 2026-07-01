@@ -343,7 +343,8 @@ export async function getLoginStatusPreview(
         if (!saved.ok) return { status: "waiting" as const };
         return {
           status: "authorized" as const,
-          source: "qr" as const
+          source: "qr" as const,
+          userId: saved.userId
         };
       }
       return stripRawCookie(status);
@@ -394,6 +395,7 @@ async function persistNeteaseCookie(cookie: string, source: "cookie" | "qr", inc
       ok: true;
       status: "authorized";
       source: "cookie" | "qr";
+      userId: number;
     }
   | {
       ok: false;
@@ -405,6 +407,7 @@ async function persistNeteaseCookie(cookie: string, source: "cookie" | "qr", inc
       ok: true;
       status: "authorized";
       source: "cookie" | "qr";
+      userId: number;
     }
   | {
       ok: false;
@@ -416,6 +419,7 @@ async function persistNeteaseCookie(cookie: string, source: "cookie" | "qr", inc
       ok: true;
       status: "authorized";
       source: "cookie" | "qr";
+      userId: number;
     }
   | {
       ok: false;
@@ -431,7 +435,8 @@ async function persistNeteaseCookie(cookie: string, source: "cookie" | "qr", inc
     };
   }
 
-  const userId = options.userId ?? DEFAULT_OWNER_USER_ID;
+  const requestedUserId = options.userId ?? DEFAULT_OWNER_USER_ID;
+  const userId = source === "qr" ? await resolveNeteaseBoundUserId(requestedUserId, normalizedCookie) : requestedUserId;
   if (userId === DEFAULT_OWNER_USER_ID) {
     process.env.NETEASE_COOKIE = normalizedCookie;
     await saveLocalEnvValue("NETEASE_COOKIE", normalizedCookie);
@@ -440,8 +445,21 @@ async function persistNeteaseCookie(cookie: string, source: "cookie" | "qr", inc
   return {
     ok: true,
     status: "authorized" as const,
-    source
+    source,
+    userId
   };
+}
+
+async function resolveNeteaseBoundUserId(currentUserId: number, cookie: string) {
+  const repository = await getMusicRepositoryForApp();
+  const db = (repository as unknown as { db: AppDatabase }).db;
+  const users = new UserRepository(db);
+  const account = await realNetease.getAccountProfile(cookie);
+  const neteaseUserId = String(account.userId);
+  const existing = users.findByNeteaseUserId(neteaseUserId);
+  if (existing) return existing.id;
+  users.bindNeteaseAccount(currentUserId, neteaseUserId, account.nickname);
+  return currentUserId;
 }
 
 async function persistLoginState(userId: number, cookie: string, source: "cookie" | "qr") {

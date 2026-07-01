@@ -34,6 +34,7 @@ import {
   recordSongPlayback,
   refreshUserProfile,
   getCurrentUserLoginStatus,
+  getNeteaseCookieForUser,
   markUserLoginExpired,
   selectSongsForAiTagging,
   tagImportedSongsForStorage,
@@ -3057,11 +3058,11 @@ describe("app services", () => {
 
     try {
       expect(normalizeNeteaseCookie(token)).toBe("MUSIC_U=" + token);
-      await expect(saveNeteaseCookie(token)).resolves.toEqual({
+      await expect(saveNeteaseCookie(token)).resolves.toEqual(expect.objectContaining({
         ok: true,
         status: "authorized",
         source: "cookie"
-      });
+      }));
     } finally {
       if (originalCookie === undefined) {
         delete process.env.NETEASE_COOKIE;
@@ -3079,11 +3080,11 @@ describe("app services", () => {
     resetAppServicesForTests();
 
     try {
-      await expect(saveNeteaseCookie(token)).resolves.toEqual({
+      await expect(saveNeteaseCookie(token)).resolves.toEqual(expect.objectContaining({
         ok: true,
         status: "authorized",
         source: "cookie"
-      });
+      }));
 
       const repository = await getMusicRepositoryForApp();
       const users = new UserRepository((repository as unknown as { db: AppDatabase }).db);
@@ -3173,7 +3174,7 @@ describe("app services", () => {
       const result = await saveNeteaseCookie("unit_test_friend_browser_login_cookie_000000000000000000", { userId: 2 });
       const users = new UserRepository(db);
 
-      expect(result).toEqual({ ok: true, status: "authorized", source: "cookie" });
+      expect(result).toEqual(expect.objectContaining({ ok: true, status: "authorized", source: "cookie", userId: 2 }));
       expect(process.env.NETEASE_COOKIE).toBe("MUSIC_U=owner-bootstrap-cookie");
       expect(users.getLoginState(2, "netease")).toEqual(
         expect.objectContaining({
@@ -3208,6 +3209,7 @@ describe("app services", () => {
     process.env.NETEASE_USE_REAL_LOGIN = "1";
     delete process.env.NETEASE_COOKIE;
     resetAppServicesForTests();
+    const profileMock = vi.spyOn(NeteaseCloudProvider.prototype, "getAccountProfile").mockResolvedValue({ userId: 1, nickname: "Owner" });
 
     try {
       await expect(
@@ -3223,7 +3225,8 @@ describe("app services", () => {
         })
       ).resolves.toEqual({
         status: "authorized",
-        source: "qr"
+        source: "qr",
+        userId: 1
       });
 
       const repository = await getMusicRepositoryForApp();
@@ -3239,6 +3242,7 @@ describe("app services", () => {
         })
       );
     } finally {
+      profileMock.mockRestore();
       if (originalCookie === undefined) {
         delete process.env.NETEASE_COOKIE;
       } else {
@@ -3272,6 +3276,7 @@ describe("app services", () => {
       rawCookie: "MUSIC_U=qr-friend-login-state-token",
       source: "qr"
     });
+    const profileMock = vi.spyOn(NeteaseCloudProvider.prototype, "getAccountProfile").mockResolvedValue({ userId: 2, nickname: "Friend" });
 
     try {
       const repository = await getMusicRepositoryForApp();
@@ -3293,6 +3298,7 @@ describe("app services", () => {
       });
       expect(JSON.stringify(body)).not.toContain("encryptedCookie");
       expect(JSON.stringify(body)).not.toContain("rawCookie");
+      expect(JSON.stringify(body)).not.toContain("userId");
       expect(JSON.stringify(body)).not.toContain("qr-friend-login-state-token");
       expect(process.env.NETEASE_COOKIE).toBe("MUSIC_U=owner-bootstrap-cookie");
       expect(users.getLoginState(2, "netease")).toEqual(
@@ -3522,6 +3528,131 @@ describe("app services", () => {
       statusMock.mockRestore();
       profileMock.mockRestore();
       importMock.mockRestore();
+      if (originalCookie === undefined) {
+        delete process.env.NETEASE_COOKIE;
+      } else {
+        process.env.NETEASE_COOKIE = originalCookie;
+      }
+      if (originalDbPath === undefined) {
+        delete process.env.MUSIC_DB_PATH;
+      } else {
+        process.env.MUSIC_DB_PATH = originalDbPath;
+      }
+      if (originalRealLogin === undefined) {
+        delete process.env.NETEASE_USE_REAL_LOGIN;
+      } else {
+        process.env.NETEASE_USE_REAL_LOGIN = originalRealLogin;
+      }
+      resetAppServicesForTests();
+    }
+  });
+
+  it("switches a new browser session to the existing user for the same NetEase account", async () => {
+    const originalCookie = process.env.NETEASE_COOKIE;
+    const originalDbPath = process.env.MUSIC_DB_PATH;
+    const originalRealLogin = process.env.NETEASE_USE_REAL_LOGIN;
+    process.env.MUSIC_DB_PATH = ":memory:";
+    process.env.NETEASE_USE_REAL_LOGIN = "1";
+    process.env.NETEASE_COOKIE = "MUSIC_U=owner-bootstrap-cookie";
+    resetAppServicesForTests();
+    const statusMock = vi.spyOn(NeteaseCloudProvider.prototype, "getLoginStatus").mockResolvedValue({
+      status: "authorized",
+      encryptedCookie: "provider-summary",
+      rawCookie: "MUSIC_U=returning-user-cookie",
+      source: "qr"
+    });
+    const profileMock = vi.spyOn(NeteaseCloudProvider.prototype, "getAccountProfile").mockResolvedValue({
+      userId: 163001,
+      nickname: "Returning Listener"
+    });
+
+    try {
+      const repository = await getMusicRepositoryForApp();
+      const db = (repository as unknown as { db: AppDatabase }).db;
+      db.run("INSERT INTO users (id, handle, nickname, netease_user_id) VALUES (2, 'returning', 'Old Name', '163001')");
+      db.run("INSERT INTO users (id, handle, nickname) VALUES (3, 'fresh-browser', null)");
+
+      const response = await loginStatusGet(
+        new Request("http://localhost/api/login/status?key=qr-key&force=1", {
+          headers: { cookie: signedSessionCookie(3) }
+        })
+      );
+      const body = await response.json();
+      const users = new UserRepository(db);
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({ status: "authorized", source: "qr" });
+      expect(response.headers.get("set-cookie")).toContain("ai_music_user=" + createSessionCookieValue(2));
+      await expect(getNeteaseCookieForUser(2)).resolves.toBe("MUSIC_U=returning-user-cookie");
+      expect(users.getLoginState(3, "netease")).toBeNull();
+      expect(profileMock).toHaveBeenCalledWith("MUSIC_U=returning-user-cookie");
+      expect(process.env.NETEASE_COOKIE).toBe("MUSIC_U=owner-bootstrap-cookie");
+    } finally {
+      statusMock.mockRestore();
+      profileMock.mockRestore();
+      if (originalCookie === undefined) {
+        delete process.env.NETEASE_COOKIE;
+      } else {
+        process.env.NETEASE_COOKIE = originalCookie;
+      }
+      if (originalDbPath === undefined) {
+        delete process.env.MUSIC_DB_PATH;
+      } else {
+        process.env.MUSIC_DB_PATH = originalDbPath;
+      }
+      if (originalRealLogin === undefined) {
+        delete process.env.NETEASE_USE_REAL_LOGIN;
+      } else {
+        process.env.NETEASE_USE_REAL_LOGIN = originalRealLogin;
+      }
+      resetAppServicesForTests();
+    }
+  });
+
+  it("binds the current browser user when a NetEase account has not been seen before", async () => {
+    const originalCookie = process.env.NETEASE_COOKIE;
+    const originalDbPath = process.env.MUSIC_DB_PATH;
+    const originalRealLogin = process.env.NETEASE_USE_REAL_LOGIN;
+    process.env.MUSIC_DB_PATH = ":memory:";
+    process.env.NETEASE_USE_REAL_LOGIN = "1";
+    process.env.NETEASE_COOKIE = "MUSIC_U=owner-bootstrap-cookie";
+    resetAppServicesForTests();
+    const statusMock = vi.spyOn(NeteaseCloudProvider.prototype, "getLoginStatus").mockResolvedValue({
+      status: "authorized",
+      encryptedCookie: "provider-summary",
+      rawCookie: "MUSIC_U=first-seen-user-cookie",
+      source: "qr"
+    });
+    const profileMock = vi.spyOn(NeteaseCloudProvider.prototype, "getAccountProfile").mockResolvedValue({
+      userId: 163002,
+      nickname: "First Seen"
+    });
+
+    try {
+      const repository = await getMusicRepositoryForApp();
+      const db = (repository as unknown as { db: AppDatabase }).db;
+      db.run("INSERT INTO users (id, handle, nickname) VALUES (2, 'fresh-browser', null)");
+
+      const response = await loginStatusGet(
+        new Request("http://localhost/api/login/status?key=qr-key&force=1", {
+          headers: { cookie: signedSessionCookie(2) }
+        })
+      );
+      const body = await response.json();
+      const bound = db
+        .prepare("SELECT netease_user_id, nickname FROM users WHERE id = 2")
+        .get() as { netease_user_id: string | null; nickname: string | null };
+
+      expect(response.status).toBe(200);
+      expect(body).toEqual({ status: "authorized", source: "qr" });
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(bound).toEqual({ netease_user_id: "163002", nickname: "First Seen" });
+      await expect(getNeteaseCookieForUser(2)).resolves.toBe("MUSIC_U=first-seen-user-cookie");
+      expect(profileMock).toHaveBeenCalledWith("MUSIC_U=first-seen-user-cookie");
+      expect(process.env.NETEASE_COOKIE).toBe("MUSIC_U=owner-bootstrap-cookie");
+    } finally {
+      statusMock.mockRestore();
+      profileMock.mockRestore();
       if (originalCookie === undefined) {
         delete process.env.NETEASE_COOKIE;
       } else {

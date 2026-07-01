@@ -34,6 +34,28 @@ export class UserRepository {
     return { id: row.id, handle: row.handle ?? `user-${row.id}`, nickname: row.nickname };
   }
 
+  findByNeteaseUserId(neteaseUserId: string): AppUser | null {
+    const row = this.getFirst<{ id: number; handle: string | null; nickname: string | null }>(
+      "SELECT id, handle, nickname FROM users WHERE netease_user_id = $neteaseUserId",
+      { $neteaseUserId: neteaseUserId }
+    );
+    if (!row) return null;
+    return { id: row.id, handle: row.handle ?? `user-${row.id}`, nickname: row.nickname };
+  }
+
+  bindNeteaseAccount(userId: number, neteaseUserId: string, nickname?: string | null) {
+    this.db.run(
+      `
+        UPDATE users
+        SET netease_user_id = $neteaseUserId,
+            nickname = COALESCE(NULLIF($nickname, ''), nickname),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $userId
+      `,
+      { $userId: userId, $neteaseUserId: neteaseUserId, $nickname: nickname?.trim() ?? null }
+    );
+  }
+
   findOrCreateInviteUser(inviteCode: string, nickname?: string | null): AppUser {
     const handle = `invite_${slugInviteCode(inviteCode)}`;
     const existing = this.getFirst<{ id: number; handle: string | null; nickname: string | null }>(

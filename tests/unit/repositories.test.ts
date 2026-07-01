@@ -65,6 +65,21 @@ describe("repositories", () => {
     );
   });
 
+  it("binds and finds users by NetEase user id", async () => {
+    const db = await createDatabase(":memory:");
+    migrate(db);
+    const users = new UserRepository(db);
+    db.run("INSERT INTO users (id, handle, nickname) VALUES (2, 'friend', null)");
+
+    users.bindNeteaseAccount(2, "163001", "Friend From NetEase");
+
+    expect(users.findByNeteaseUserId("163001")).toEqual({
+      id: 2,
+      handle: "friend",
+      nickname: "Friend From NetEase"
+    });
+  });
+
   it("treats only the default owner as an admin user", async () => {
     const db = await createDatabase(":memory:");
     migrate(db);

@@ -156,6 +156,7 @@ export function migrate(db: AppDatabase) {
   addColumnIfMissing(db, "tagging_jobs", "next_attempt_at", "TEXT");
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_handle ON users(handle);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_netease_user_id ON users(netease_user_id) WHERE netease_user_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_recommendation_sessions_user_id ON recommendation_sessions(user_id);
 
     INSERT OR IGNORE INTO users (id, handle, nickname)

@@ -1,5 +1,5 @@
 import { getLoginStatusPreview, resolveCurrentUserForRequest } from "@/lib/appServices";
-import { hasSignedSessionCookie } from "@/lib/user/sessionCookie";
+import { createSessionSetCookie, hasSignedSessionCookie } from "@/lib/user/sessionCookie";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -12,5 +12,20 @@ export async function GET(request: Request) {
     return Response.json({ status: "waiting" });
   }
   const user = await resolveCurrentUserForRequest(request);
-  return Response.json(await getLoginStatusPreview(key, url.searchParams.get("force") === "1", undefined, { userId: user.id }));
+  const status = await getLoginStatusPreview(key, url.searchParams.get("force") === "1", undefined, { userId: user.id });
+  const statusUserId = readStatusUserId(status);
+  const headers = status.status === "authorized" && statusUserId && statusUserId !== user.id ? { "Set-Cookie": createSessionSetCookie(statusUserId, request) } : undefined;
+  return Response.json(stripInternalLoginStatus(status), { headers });
+}
+
+function readStatusUserId(status: Awaited<ReturnType<typeof getLoginStatusPreview>>) {
+  return "userId" in status && typeof status.userId === "number" ? status.userId : null;
+}
+
+function stripInternalLoginStatus(status: Awaited<ReturnType<typeof getLoginStatusPreview>>) {
+  if ("userId" in status) {
+    const { userId: _userId, ...safeStatus } = status;
+    return safeStatus;
+  }
+  return status;
 }

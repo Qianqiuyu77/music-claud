@@ -9,5 +9,13 @@ export async function POST(request: Request) {
   const body = (await request.json()) as { cookie?: string };
   const user = await resolveCurrentUserForRequest(request);
   const result = await saveNeteaseCookie(body.cookie ?? "", { userId: user.id });
-  return Response.json(result, { status: result.ok ? 200 : 400 });
+  return Response.json(stripInternalCookieResult(result), { status: result.ok ? 200 : 400 });
+}
+
+function stripInternalCookieResult(result: Awaited<ReturnType<typeof saveNeteaseCookie>>) {
+  if ("userId" in result) {
+    const { userId: _userId, ...safeResult } = result;
+    return safeResult;
+  }
+  return result;
 }
