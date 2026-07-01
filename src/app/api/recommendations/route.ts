@@ -1,4 +1,4 @@
-import { createRecommendationResponse, getMusicRepositoryForApp, hasConfiguredNeteaseCookie } from "@/lib/appServices";
+import { createRecommendationResponse, getCurrentUserLoginStatus, getStoredLibraryStatus, hasConfiguredNeteaseCookie, resolveCurrentUserForRequest } from "@/lib/appServices";
 import type { RecommendationMode, RecommendationScene } from "@/lib/recommendation/types";
 
 export async function POST(request: Request) {
@@ -7,8 +7,10 @@ export async function POST(request: Request) {
   if (!prompt) {
     return Response.json({ error: "请输入当前想听歌的场景。" }, { status: 400 });
   }
-  const stats = (await getMusicRepositoryForApp()).getLibraryStats();
-  if (!hasConfiguredNeteaseCookie() && stats.songs === 0) {
+  const user = await resolveCurrentUserForRequest(request);
+  const libraryStatus = await getStoredLibraryStatus(user.id);
+  const loginStatus = await getCurrentUserLoginStatus(request);
+  if (!hasConfiguredNeteaseCookie() && loginStatus.status !== "active" && libraryStatus.counts.songs === 0) {
     return Response.json({ error: "缺少网易云 Cookie 或本地曲库，不能生成真实推荐。" }, { status: 401 });
   }
   try {
@@ -18,6 +20,7 @@ export async function POST(request: Request) {
         excludeIds: Array.isArray(body.excludeIds) ? body.excludeIds : [],
         mode: body.mode,
         scene: body.scene,
+        userId: user.id,
         requireAi: true
       })
     );

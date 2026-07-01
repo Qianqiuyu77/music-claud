@@ -135,6 +135,15 @@ export class MusicRepository {
     }
   }
 
+  upsertCandidateSongsForUser(userId: number, songs: CandidateSong[]) {
+    for (const song of songs) {
+      const songId = this.upsertCandidateSong(song);
+      for (const source of song.sources) {
+        this.addUserSongSource({ userId, songId, source });
+      }
+    }
+  }
+
   replaceCandidateSongTags(song: CandidateSong): number {
     this.db.run(
       `
@@ -156,6 +165,20 @@ export class MusicRepository {
 
   listSongs(): SongRow[] {
     return this.getAll<SongRow>("SELECT * FROM songs ORDER BY id");
+  }
+
+  listSongIdsByNeteaseIds(neteaseSongIds: string[]) {
+    const ids = unique(neteaseSongIds.filter(Boolean));
+    const result = new Map<string, number>();
+    if (!ids.length) return result;
+    const placeholders = ids.map((_, index) => `$id${index}`).join(", ");
+    const params = Object.fromEntries(ids.map((id, index) => [`$id${index}`, id]));
+    const rows = this.getAll<{ id: number; netease_song_id: string }>(
+      `SELECT id, netease_song_id FROM songs WHERE netease_song_id IN (${placeholders})`,
+      params
+    );
+    for (const row of rows) result.set(row.netease_song_id, row.id);
+    return result;
   }
 
   listCandidateSongs(): CandidateSong[] {
@@ -197,10 +220,84 @@ export class MusicRepository {
     return row?.id ?? 0;
   }
 
+  addUserSongSource(input: { userId: number; songId: number; source: string }) {
+    this.db.run(
+      `
+        INSERT OR IGNORE INTO user_song_sources (user_id, song_id, source)
+        VALUES ($userId, $songId, $source)
+      `,
+      {
+        $userId: input.userId,
+        $songId: input.songId,
+        $source: input.source
+      }
+    );
+  }
+
+  addUserSongEvent(input: SongEventInput & { userId: number }): number {
+    this.db.run(
+      `
+        INSERT INTO user_song_events (user_id, song_id, event_type, source, context_text, weight)
+        VALUES ($userId, $songId, $eventType, $source, $contextText, $weight)
+      `,
+      {
+        $userId: input.userId,
+        $songId: input.songId,
+        $eventType: input.eventType,
+        $source: input.source,
+        $contextText: input.contextText,
+        $weight: input.weight
+      }
+    );
+    const row = this.getFirst<{ id: number }>("SELECT last_insert_rowid() AS id");
+    return row?.id ?? 0;
+  }
+
+  listCandidateSongsForUser(userId: number): CandidateSong[] {
+    const rows = this.listSongs();
+    const sourcesBySongId = this.userSourcesBySongId(userId);
+    const feedbackBySongId = this.userFeedbackBySongId(userId);
+    return rows
+      .map((row) => ({
+        neteaseSongId: row.netease_song_id,
+        name: row.name,
+        artistNames: row.artist_names ? row.artist_names.split(", ").filter(Boolean) : [],
+        artistIds: parseJsonArray(row.artist_ids_json) as string[],
+        albumName: row.album_name,
+        coverUrl: row.cover_url,
+        streamUrl: row.stream_url,
+        durationMs: row.duration_ms,
+        popularity: row.popularity,
+        sources: normalizeSources(sourcesBySongId.get(row.id) ?? []),
+        tags: parseJsonArray(row.tags_json) as string[],
+        recentPlayCount: row.recent_play_count,
+        daysSinceLastPlayed: row.days_since_last_played,
+        feedback: feedbackBySongId.get(row.id) ?? []
+      }))
+      .filter((song) => song.sources.length > 0);
+  }
+
   recordFeedbackByNeteaseSongId(neteaseSongId: string, feedback: Feedback) {
     const row = this.getFirst<{ id: number }>("SELECT id FROM songs WHERE netease_song_id = $id", { $id: neteaseSongId });
     if (!row) return null;
     this.addSongEvent({
+      songId: row.id,
+      eventType: "feedback",
+      source: "local",
+      contextText: feedback,
+      weight: feedback === "dislike" || feedback === "too_familiar" ? -1 : 1
+    });
+    return {
+      itemId: neteaseSongId,
+      feedback
+    };
+  }
+
+  recordFeedbackByNeteaseSongIdForUser(userId: number, neteaseSongId: string, feedback: Feedback) {
+    const row = this.getFirst<{ id: number }>("SELECT id FROM songs WHERE netease_song_id = $id", { $id: neteaseSongId });
+    if (!row) return null;
+    this.addUserSongEvent({
+      userId,
       songId: row.id,
       eventType: "feedback",
       source: "local",
@@ -244,6 +341,29 @@ export class MusicRepository {
     };
   }
 
+  recordPlaybackByNeteaseSongIdForUser(
+    userId: number,
+    neteaseSongId: string,
+    playback: { playedSeconds: number; durationSeconds: number | null; completed: boolean }
+  ) {
+    const row = this.getFirst<{ id: number }>("SELECT id FROM songs WHERE netease_song_id = $id", { $id: neteaseSongId });
+    if (!row) return null;
+
+    this.addUserSongEvent({
+      userId,
+      songId: row.id,
+      eventType: "played",
+      source: "local",
+      contextText: JSON.stringify(playback),
+      weight: playback.completed ? 1 : 0.5
+    });
+
+    return {
+      itemId: neteaseSongId,
+      playback
+    };
+  }
+
   listLatestPlaybackByNeteaseSongIds(neteaseSongIds: string[]) {
     const ids = unique(neteaseSongIds.filter(Boolean));
     const result = new Map<string, LatestPlayback>();
@@ -261,6 +381,39 @@ export class MusicRepository {
         ORDER BY e.created_at DESC, e.id DESC
       `,
       params
+    );
+
+    for (const row of rows) {
+      if (result.has(row.netease_song_id)) continue;
+      const parsed = parsePlaybackContext(row.context_text);
+      result.set(row.netease_song_id, {
+        itemId: row.netease_song_id,
+        ...parsed,
+        createdAt: row.created_at
+      });
+    }
+
+    return result;
+  }
+
+  listLatestPlaybackByNeteaseSongIdsForUser(userId: number, neteaseSongIds: string[]) {
+    const ids = unique(neteaseSongIds.filter(Boolean));
+    const result = new Map<string, LatestPlayback>();
+    if (!ids.length) return result;
+
+    const placeholders = ids.map((_, index) => `$id${index}`).join(", ");
+    const params = Object.fromEntries(ids.map((id, index) => [`$id${index}`, id]));
+    const rows = this.getAll<PlaybackRow>(
+      `
+        SELECT s.netease_song_id, e.context_text, e.created_at
+        FROM user_song_events e
+        JOIN songs s ON s.id = e.song_id
+        WHERE e.user_id = $userId
+          AND e.event_type = 'played'
+          AND s.netease_song_id IN (${placeholders})
+        ORDER BY e.created_at DESC, e.id DESC
+      `,
+      { ...params, $userId: userId }
     );
 
     for (const row of rows) {
@@ -321,6 +474,31 @@ export class MusicRepository {
   private feedbackBySongId() {
     const rows = this.getAll<FeedbackRow>(
       "SELECT song_id, context_text FROM song_events WHERE event_type = 'feedback' AND context_text IS NOT NULL ORDER BY id"
+    );
+    const bySongId = new Map<number, Feedback[]>();
+    for (const row of rows) {
+      if (!isFeedback(row.context_text)) continue;
+      bySongId.set(row.song_id, unique([...(bySongId.get(row.song_id) ?? []), row.context_text]));
+    }
+    return bySongId;
+  }
+
+  private userSourcesBySongId(userId: number) {
+    const rows = this.getAll<{ song_id: number; source: string }>(
+      "SELECT song_id, source FROM user_song_sources WHERE user_id = $userId ORDER BY source",
+      { $userId: userId }
+    );
+    const bySongId = new Map<number, string[]>();
+    for (const row of rows) {
+      bySongId.set(row.song_id, unique([...(bySongId.get(row.song_id) ?? []), row.source]));
+    }
+    return bySongId;
+  }
+
+  private userFeedbackBySongId(userId: number) {
+    const rows = this.getAll<FeedbackRow>(
+      "SELECT song_id, context_text FROM user_song_events WHERE user_id = $userId AND event_type = 'feedback' AND context_text IS NOT NULL ORDER BY id",
+      { $userId: userId }
     );
     const bySongId = new Map<number, Feedback[]>();
     for (const row of rows) {

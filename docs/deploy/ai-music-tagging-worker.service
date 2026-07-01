@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Music public song tagging worker
+After=network-online.target ai-music.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ai-music
+Group=ai-music
+WorkingDirectory=/srv/ai-music/app
+EnvironmentFile=/srv/ai-music/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run worker:tagging
+
+# Required in /srv/ai-music/.env:
+# APP_BASE_URL=https://music.example.com
+# TAGGING_WORKER_SECRET=replace-with-long-random-secret

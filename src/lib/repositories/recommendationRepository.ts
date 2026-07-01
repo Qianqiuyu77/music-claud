@@ -33,12 +33,17 @@ export class RecommendationRepository {
   constructor(private readonly db: AppDatabase) {}
 
   createSession(input: SessionInput): number {
+    return this.createSessionForUser(1, input);
+  }
+
+  createSessionForUser(userId: number, input: SessionInput): number {
     this.db.run(
       `
-        INSERT INTO recommendation_sessions (prompt, parsed_context_json, strategy_json)
-        VALUES ($prompt, $parsedContextJson, $strategyJson)
+        INSERT INTO recommendation_sessions (user_id, prompt, parsed_context_json, strategy_json)
+        VALUES ($userId, $prompt, $parsedContextJson, $strategyJson)
       `,
       {
+        $userId: userId,
         $prompt: input.prompt,
         $parsedContextJson: JSON.stringify(input.parsedContext),
         $strategyJson: JSON.stringify(input.strategy)
@@ -76,7 +81,14 @@ export class RecommendationRepository {
   }
 
   getSessionWithItems(sessionId: number) {
-    const session = this.getFirst("SELECT * FROM recommendation_sessions WHERE id = $sessionId", { $sessionId: sessionId });
+    return this.getSessionWithItemsForUser(1, sessionId);
+  }
+
+  getSessionWithItemsForUser(userId: number, sessionId: number) {
+    const session = this.getFirst("SELECT * FROM recommendation_sessions WHERE id = $sessionId AND user_id = $userId", {
+      $sessionId: sessionId,
+      $userId: userId
+    });
     if (!session) return null;
     const rows = this.getAll<ItemRow>("SELECT * FROM recommendation_items WHERE session_id = $sessionId ORDER BY rank", {
       $sessionId: sessionId

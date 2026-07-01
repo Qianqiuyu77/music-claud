@@ -39,7 +39,7 @@ export async function handleChatRequest(request: Request, options: { aiProvider?
   }
 }
 
-function normalizeChatInput(body: ChatRouteBody): CompanionChatInput {
+export function normalizeChatInput(body: ChatRouteBody): CompanionChatInput {
   const song = body.song ?? {};
   return {
     message: String(body.message ?? "").trim(),

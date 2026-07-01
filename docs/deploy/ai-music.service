@@ -1,0 +1,23 @@
+[Unit]
+Description=AI Music private web app
+After=network.target
+
+[Service]
+Type=simple
+User=ai-music
+Group=ai-music
+WorkingDirectory=/srv/ai-music/app
+EnvironmentFile=/srv/ai-music/.env
+Environment=NODE_ENV=production
+ExecStartPre=/usr/bin/npm run release:check
+ExecStartPre=/usr/bin/npm run db:backup
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/srv/ai-music/data /srv/ai-music/backups /srv/ai-music/app/.next
+
+[Install]
+WantedBy=multi-user.target

@@ -93,5 +93,80 @@ export function migrate(db: AppDatabase) {
       partial_failures_json TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS user_login_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      encrypted_cookie TEXT NOT NULL,
+      status TEXT NOT NULL,
+      source TEXT NOT NULL,
+      last_verified_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, provider)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_song_sources (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, song_id, source)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_song_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      source TEXT NOT NULL,
+      context_text TEXT,
+      weight REAL NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      profile_json TEXT NOT NULL,
+      compact_summary TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      last_refreshed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS tagging_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(song_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_song_sources_user_id ON user_song_sources(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_song_events_user_id ON user_song_events(user_id);
+    CREATE INDEX IF NOT EXISTS idx_tagging_jobs_status ON tagging_jobs(status);
   `);
+  addColumnIfMissing(db, "users", "handle", "TEXT");
+  addColumnIfMissing(db, "recommendation_sessions", "user_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  addColumnIfMissing(db, "tagging_jobs", "next_attempt_at", "TEXT");
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_handle ON users(handle);
+    CREATE INDEX IF NOT EXISTS idx_recommendation_sessions_user_id ON recommendation_sessions(user_id);
+
+    INSERT OR IGNORE INTO users (id, handle, nickname)
+    VALUES (1, 'owner', 'Owner');
+
+    UPDATE recommendation_sessions SET user_id = 1 WHERE user_id IS NULL;
+  `);
+}
+
+function addColumnIfMissing(db: AppDatabase, tableName: string, columnName: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === columnName)) return;
+  db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
 }

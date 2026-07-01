@@ -1,5 +1,5 @@
-import { Workbench } from "@/components/workbench/Workbench";
+import { ConsumerMusicApp } from "@/components/player/ConsumerMusicApp";
 
 export default function HomePage() {
-  return <Workbench />;
+  return <ConsumerMusicApp />;
 }

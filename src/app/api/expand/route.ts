@@ -1,8 +1,14 @@
-import { expandStoredLibrary } from "@/lib/appServices";
+import { canAccessAdmin } from "@/lib/admin/access";
+import { expandStoredLibrary, resolveCurrentUserForRequest } from "@/lib/appServices";
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!(await canAccessAdmin(request))) {
+    return new Response(null, { status: 404 });
+  }
+
   try {
-    const result = await expandStoredLibrary();
+    const user = await resolveCurrentUserForRequest(request);
+    const result = await expandStoredLibrary({ userId: user.id });
     return Response.json({
       counts: {
         songs: result.stats?.songs ?? result.songs.length,

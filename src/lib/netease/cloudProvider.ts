@@ -69,9 +69,11 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     if (code === 801) return { status: "waiting" as const };
     if (code === 802) return { status: "scanned" as const };
     if (code === 803) {
+      const cookie = String(response.body?.cookie ?? "");
       return {
         status: "authorized" as const,
-        encryptedCookie: encryptCookieForLocalUse(String(response.body?.cookie ?? "")),
+        encryptedCookie: encryptCookieForLocalUse(cookie),
+        rawCookie: cookie,
         source: "qr" as const
       };
     }
@@ -79,8 +81,19 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     return { status: "waiting" as const };
   }
 
-  async importLibrary(): Promise<NeteaseImportResult> {
-    const cookie = process.env.NETEASE_COOKIE?.trim();
+  async getAccountProfile(cookie: string) {
+    const account = normalizeResponse(await this.callApi("/user/account", { cookie }));
+    const profile = readNested<Record<string, unknown>>(account.body, ["profile"]) ?? {};
+    const userId = readNumber(profile.userId ?? readNested(account.body, ["account", "id"]));
+    if (!userId) throw new Error("NetEase account response did not include a user id");
+    return {
+      userId,
+      nickname: typeof profile.nickname === "string" ? profile.nickname : null
+    };
+  }
+
+  async importLibrary(cookieOverride?: string, options: { quick?: boolean; limit?: number } = {}): Promise<NeteaseImportResult> {
+    const cookie = cookieOverride?.trim() || process.env.NETEASE_COOKIE?.trim();
     if (!cookie) {
       return {
         songs: [],
@@ -99,7 +112,7 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     }
 
     const likedIds = await this.getLikedIds(cookie, uid, partialFailures);
-    const playlistIds = await this.getPlaylistTrackIds(cookie, uid, partialFailures);
+    const playlistIds = options.quick ? [] : await this.getPlaylistTrackIds(cookie, uid, partialFailures);
     const recentIds = await this.getRecentSongIds(cookie, partialFailures);
 
     const sourceById = new Map<string, Set<CandidateSourceName>>();
@@ -107,7 +120,7 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     for (const id of playlistIds) addSource(sourceById, id, "playlist");
     for (const id of recentIds) addSource(sourceById, id, "recent");
 
-    const ids = Array.from(sourceById.keys());
+    const ids = Array.from(sourceById.keys()).slice(0, options.quick ? quickImportLimit(options.limit) : undefined);
     if (ids.length === 0) {
       return {
         songs: [],
@@ -119,8 +132,8 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     return { songs, partialFailures };
   }
 
-  async expandLibrary(options: { seedSongIds?: string[]; limit?: number } = {}): Promise<NeteaseImportResult> {
-    const cookie = process.env.NETEASE_COOKIE?.trim();
+  async expandLibrary(options: { seedSongIds?: string[]; limit?: number } = {}, cookieOverride?: string | null): Promise<NeteaseImportResult> {
+    const cookie = cookieOverride?.trim() || process.env.NETEASE_COOKIE?.trim();
     if (!cookie) {
       return {
         songs: [],
@@ -176,8 +189,8 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     return { songs, partialFailures };
   }
 
-  async getFreshPlaybackUrl(songId: string) {
-    const cookie = process.env.NETEASE_COOKIE?.trim();
+  async getFreshPlaybackUrl(songId: string, cookieOverride?: string | null) {
+    const cookie = cookieOverride?.trim() || process.env.NETEASE_COOKIE?.trim();
     if (!cookie || !songId.trim()) return null;
 
     const response = normalizeResponse(await this.callApi("/song/url", { cookie, id: songId, br: 320000 }));
@@ -185,8 +198,8 @@ export class NeteaseCloudProvider implements NeteaseProvider {
     return item?.url ?? null;
   }
 
-  async getLyrics(songId: string) {
-    const cookie = process.env.NETEASE_COOKIE?.trim();
+  async getLyrics(songId: string, cookieOverride?: string | null) {
+    const cookie = cookieOverride?.trim() || process.env.NETEASE_COOKIE?.trim();
     if (!cookie || !songId.trim()) return [];
 
     const response = normalizeResponse(
@@ -479,6 +492,11 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper:
 
 function pickByQuota(items: string[], quota: number) {
   return unique(items).slice(0, Math.max(0, quota));
+}
+
+function quickImportLimit(limit?: number) {
+  const safeLimit = Number(limit ?? 120);
+  return Number.isFinite(safeLimit) ? Math.min(200, Math.max(20, Math.floor(safeLimit))) : 120;
 }
 
 function unique<T>(items: T[]) {

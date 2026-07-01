@@ -2,20 +2,20 @@ import { NeteaseCloudProvider } from "@/lib/netease/cloudProvider";
 export { playbackProxyUrl } from "./url";
 
 type PlaybackServices = {
-  resolveFreshPlaybackUrl: (songId: string) => Promise<string | null>;
+  resolveFreshPlaybackUrl: (songId: string, cookie?: string | null) => Promise<string | null>;
   fetchMedia: typeof fetch;
 };
 
 const defaultProvider = new NeteaseCloudProvider();
 let injectedServices: Partial<PlaybackServices> = {};
 
-export async function resolveFreshPlaybackUrl(songId: string) {
-  const resolver = injectedServices.resolveFreshPlaybackUrl ?? ((id: string) => defaultProvider.getFreshPlaybackUrl(id));
-  return resolver(songId);
+export async function resolveFreshPlaybackUrl(songId: string, cookie?: string | null) {
+  const resolver = injectedServices.resolveFreshPlaybackUrl ?? ((id: string, cookieOverride?: string | null) => defaultProvider.getFreshPlaybackUrl(id, cookieOverride));
+  return resolver(songId, cookie);
 }
 
-export async function proxyPlaybackRequest(songId: string, requestHeaders: Headers) {
-  const freshUrl = await resolveFreshPlaybackUrl(songId);
+export async function proxyPlaybackRequest(songId: string, requestHeaders: Headers, cookie?: string | null) {
+  const freshUrl = await resolveFreshPlaybackUrl(songId, cookie);
   if (!freshUrl) {
     return Response.json({ error: "这首歌暂时没有可播放地址，可能受版权限制。" }, { status: 404 });
   }

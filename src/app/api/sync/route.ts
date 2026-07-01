@@ -1,8 +1,10 @@
-import { getSyncPreview } from "@/lib/appServices";
+import { getSyncPreview, NeteaseLoginExpiredError, resolveCurrentUserForRequest } from "@/lib/appServices";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const result = await getSyncPreview();
+    const user = await resolveCurrentUserForRequest(request);
+    const url = new URL(request.url);
+    const result = await getSyncPreview({ userId: user.id, quick: url.searchParams.get("mode") === "quick" });
     const stats = "stats" in result ? result.stats : null;
     return Response.json({
       counts: {
@@ -15,6 +17,9 @@ export async function POST() {
       partialFailures: result.partialFailures
     });
   } catch (error) {
+    if (error instanceof NeteaseLoginExpiredError) {
+      return Response.json({ error: error.message }, { status: 401 });
+    }
     return Response.json({ error: error instanceof Error ? error.message : "同步失败，请稍后再试。" }, { status: 500 });
   }
 }

@@ -11,9 +11,10 @@ export type NeteaseProvider = {
   getLoginStatus(key: string): Promise<{
     status: "waiting" | "scanned" | "authorized" | "expired";
     encryptedCookie?: string;
+    rawCookie?: string;
     source?: "cookie" | "qr";
   }>;
-  importLibrary(): Promise<NeteaseImportResult>;
-  expandLibrary?(options: { seedSongIds?: string[]; limit?: number }): Promise<NeteaseImportResult>;
+  importLibrary(cookieOverride?: string, options?: { quick?: boolean; limit?: number }): Promise<NeteaseImportResult>;
+  expandLibrary?(options: { seedSongIds?: string[]; limit?: number }, cookieOverride?: string | null): Promise<NeteaseImportResult>;
   getLyrics?(songId: string): Promise<LyricLine[]>;
 };

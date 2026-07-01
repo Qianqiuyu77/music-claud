@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+﻿import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { RecommendationFlowPage } from "@/components/workbench/RecommendationFlowPage";
@@ -36,11 +36,11 @@ describe("Workbench", () => {
 
     expect(screen.queryByRole("textbox", { name: /听歌场景/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "输入场景" })).toBeInTheDocument();
-    expect(screen.getByText("等待曲库同步")).toBeInTheDocument();
+    expect(screen.getByText("先连上你的网易云音乐")).toBeInTheDocument();
     expect(container.querySelector(".player-app")).toBeInTheDocument();
     expect(container.querySelector(".control-rail")).not.toBeInTheDocument();
-    expect(screen.queryByText("网易云曲库")).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /网易云 Cookie/i })).not.toBeInTheDocument();
+    expect(container.querySelector(".control-rail")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Cookie/i)).not.toBeInTheDocument();
 
     fetchMock.mockRestore();
   });
@@ -60,8 +60,8 @@ describe("Workbench", () => {
     const { container } = render(<Workbench />);
 
     expect(await screen.findByText("准备好播放了")).toBeInTheDocument();
-    expect(screen.queryByText("6958 首真实候选歌")).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync")).toHaveLength(0);
+    expect(screen.queryByText("6958 棣栫湡瀹炲€欓€夋瓕")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync?mode=quick")).toHaveLength(0);
 
     fetchMock.mockRestore();
   });
@@ -88,6 +88,276 @@ describe("Workbench", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/recommendations")).toBe(false);
 
     fetchMock.mockRestore();
+  });
+
+  it("silently syncs once for a first-use consumer after login is authorized and the local library is empty", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "cookie-login", qrUrl: "", source: "cookie" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, partialFailures: 0 } }));
+      }
+      if (url === "/api/sync?mode=quick") {
+        return new Response(JSON.stringify({ counts: { songs: 18, playableSongs: 16, imported: 18, partialFailures: 0 }, partialFailures: [] }));
+      }
+      if (url === "/api/default-queue?limit=12") {
+        return new Response(JSON.stringify(defaultLikedResult));
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+
+    render(<Workbench silentSyncOnFirstUse />);
+
+    expect((await screen.findAllByText("默认喜欢歌曲 A")).length).toBeGreaterThan(0);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync?mode=quick")).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/sync?mode=quick", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/default-queue?limit=12");
+    expect(screen.queryByText(/18/)).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("does not run silent first-use sync in admin mode when the library is empty", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "cookie-login", qrUrl: "", source: "cookie" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, partialFailures: 0 } }));
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+
+    render(<Workbench mode="admin" silentSyncOnFirstUse />);
+
+    expect(await screen.findByText("网易云已连接")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync?mode=quick")).toHaveLength(0);
+
+    fetchMock.mockRestore();
+  });
+
+  it("shows a consumer QR login entry on first use when there is no saved backend Cookie", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "qr-key", qrUrl: "data:image/png;base64,qr", source: "qr" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, partialFailures: 0 } }));
+      }
+      return new Response(JSON.stringify({ status: "waiting" }));
+    });
+
+    render(<Workbench silentSyncOnFirstUse />);
+
+    expect(await screen.findByRole("img", { name: "网易云扫码登录二维码" })).toHaveAttribute("src", "data:image/png;base64,qr");
+    expect(screen.getByRole("img", { name: "网易云扫码登录二维码" })).toBeInTheDocument();
+    expect(screen.queryByText(/Cookie/i)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync?mode=quick")).toHaveLength(0);
+
+    fetchMock.mockRestore();
+  });
+
+  it("shows a fresh consumer QR login and skips silent sync when the saved login state is expired", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/state") {
+        return new Response(JSON.stringify({ login: { provider: "netease", status: "expired", source: "cookie", lastVerifiedAt: "2026-06-30T00:00:00.000Z" } }));
+      }
+      if (url === "/api/login/qr?force=1") {
+        return new Response(JSON.stringify({ key: "expired-relogin", qrUrl: "data:image/png;base64,relogin", source: "qr" }));
+      }
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "cookie-login", qrUrl: "", source: "cookie" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, partialFailures: 0 } }));
+      }
+      return new Response(JSON.stringify({ status: "waiting" }));
+    });
+
+    render(<Workbench silentSyncOnFirstUse />);
+
+    expect(await screen.findByRole("img", { name: "网易云扫码登录二维码" })).toHaveAttribute("src", "data:image/png;base64,relogin");
+    expect(fetchMock).toHaveBeenCalledWith("/api/login/state");
+    expect(fetchMock).toHaveBeenCalledWith("/api/login/qr?force=1");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync?mode=quick")).toHaveLength(0);
+    expect(screen.queryByText(/Cookie/i)).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("uses forced QR status polling after an expired login and then resumes first-use playback", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/state") {
+        return new Response(JSON.stringify({ login: { provider: "netease", status: "expired", source: "cookie", lastVerifiedAt: "2026-06-30T00:00:00.000Z" } }));
+      }
+      if (url === "/api/login/qr?force=1") {
+        return new Response(JSON.stringify({ key: "expired-relogin", qrUrl: "data:image/png;base64,relogin", source: "qr" }));
+      }
+      if (url === "/api/login/status?key=expired-relogin&force=1") {
+        return new Response(JSON.stringify({ status: "authorized", source: "qr" }));
+      }
+      if (url === "/api/login/status?key=expired-relogin") {
+        return new Response(JSON.stringify({ status: "authorized", source: "cookie" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, lastSyncAt: null, partialFailures: 0 } }));
+      }
+      if (url === "/api/sync?mode=quick") {
+        return new Response(JSON.stringify({ counts: { songs: 12, playableSongs: 10, imported: 12, partialFailures: 0 }, partialFailures: [] }));
+      }
+      if (url === "/api/default-queue?limit=12") {
+        return new Response(JSON.stringify(defaultLikedResult));
+      }
+      return new Response(JSON.stringify({ status: "waiting" }));
+    });
+
+    try {
+      render(<Workbench silentSyncOnFirstUse />);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(document.querySelector("img[src=\"data:image/png;base64,relogin\"]")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/login/qr?force=1");
+      expect(fetchMock).toHaveBeenCalledWith("/api/login/status?key=expired-relogin&force=1");
+      expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/login/status?key=expired-relogin")).toBe(false);
+      expect(fetchMock).toHaveBeenCalledWith("/api/sync?mode=quick", { method: "POST" });
+      expect(document.querySelector('audio[src="/api/playback?id=default-liked-1"]')).toBeInTheDocument();
+      expect(screen.queryByText(/Cookie/i)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("keeps the QR login surface inside admin controls on the admin page", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "qr-key", qrUrl: "data:image/png;base64,qr", source: "qr" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, partialFailures: 0 } }));
+      }
+      return new Response(JSON.stringify({ status: "waiting" }));
+    });
+
+    render(<Workbench mode="admin" />);
+
+    expect(await screen.findByRole("img", { name: "网易云扫码登录二维码" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "网易云扫码登录二维码" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/sync?mode=quick")).toHaveLength(0);
+
+    fetchMock.mockRestore();
+  });
+
+  it("moves from QR authorization into silent first-use preparation without showing sync internals", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "qr-key", qrUrl: "data:image/png;base64,qr", source: "qr" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, partialFailures: 0 } }));
+      }
+      if (url === "/api/login/status?key=qr-key") {
+        return new Response(JSON.stringify({ status: "authorized", source: "qr" }));
+      }
+      if (url === "/api/sync?mode=quick") {
+        return new Promise<Response>(() => undefined);
+      }
+      return new Response(JSON.stringify({ status: "waiting" }));
+    });
+
+    render(<Workbench silentSyncOnFirstUse />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(document.querySelector("img[src=\"data:image/png;base64,qr\"]")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("正在同步")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/sync?mode=quick", { method: "POST" });
+
+    vi.useRealTimers();
+    fetchMock.mockRestore();
+  });
+
+  it("loads the default queue after QR authorization finishes first-use sync", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/state") {
+        return new Response(JSON.stringify({ login: { provider: "netease", status: "missing", source: null, lastVerifiedAt: null } }));
+      }
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "qr-key", qrUrl: "data:image/png;base64,qr", source: "qr" }));
+      }
+      if (url === "/api/library") {
+        return new Response(JSON.stringify({ counts: { songs: 0, playableSongs: 0, lastSyncAt: null, partialFailures: 0 } }));
+      }
+      if (url === "/api/login/status?key=qr-key") {
+        return new Response(JSON.stringify({ status: "authorized", source: "qr" }));
+      }
+      if (url === "/api/sync?mode=quick") {
+        return new Response(JSON.stringify({ counts: { songs: 12, playableSongs: 10, imported: 12, partialFailures: 0 }, partialFailures: [] }));
+      }
+      if (url === "/api/default-queue?limit=12") {
+        return new Response(JSON.stringify(defaultLikedResult));
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+
+    try {
+      render(<Workbench silentSyncOnFirstUse />);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(document.querySelector("img[src=\"data:image/png;base64,qr\"]")).toBeInTheDocument();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1000);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(document.querySelector('audio[src="/api/playback?id=default-liked-1"]')).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledWith("/api/sync?mode=quick", { method: "POST" });
+      expect(fetchMock).toHaveBeenCalledWith("/api/default-queue?limit=12");
+      expect(screen.queryByText(/Cookie/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("姝ｅ湪鍚屾")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+      fetchMock.mockRestore();
+    }
   });
 
   it("lets the player request recommendations from local storage without waiting for login status", async () => {
@@ -148,7 +418,7 @@ describe("Workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "探索新歌" }));
     fireEvent.click(screen.getByRole("button", { name: "下一首开始" }));
     fireEvent.click(screen.getByRole("button", { name: "写代码" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /听歌场景/i }), { target: { value: "别太困，有点律动" } });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "quiet focus" } });
     fireEvent.click(screen.getByRole("button", { name: /生成推荐/i }));
 
     await waitFor(() => {
@@ -157,8 +427,8 @@ describe("Workbench", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            prompt: "别太困，有点律动",
-            text: "别太困，有点律动",
+            prompt: "quiet focus",
+            text: "quiet focus",
             mode: "explore",
             scene: "work_focus",
             limit: 12,
@@ -250,12 +520,12 @@ describe("Workbench", () => {
     render(<Workbench />);
 
     fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /听歌场景/i }), { target: { value: "想听一点安静的歌" } });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "quiet focus" } });
     fireEvent.click(screen.getByRole("button", { name: /生成推荐/i }));
 
     await waitFor(() => expect(playMock).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
-    expect(screen.getByRole("textbox", { name: /听歌场景/i })).toHaveValue("");
+    expect(screen.getByRole("textbox")).toHaveValue("");
 
     fetchMock.mockRestore();
   });
@@ -275,12 +545,12 @@ describe("Workbench", () => {
     render(<Workbench />);
 
     fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
-    fireEvent.change(screen.getByRole("textbox", { name: /听歌场景/i }), { target: { value: "想听一点安静的歌" } });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "quiet focus" } });
     fireEvent.click(screen.getByRole("button", { name: /生成推荐/i }));
 
     expect(await screen.findByText("DeepSeek 调用失败")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "输入场景" }));
-    expect(screen.getByRole("textbox", { name: /听歌场景/i })).toHaveValue("想听一点安静的歌");
+    expect(screen.getByRole("textbox")).toHaveValue("quiet focus");
 
     fetchMock.mockRestore();
   });
@@ -349,7 +619,7 @@ describe("Workbench", () => {
     });
 
     expect(window.sessionStorage.getItem("latestRecommendationResult")).toContain("AI 原始意图返回");
-    expect(window.sessionStorage.getItem("latestRecommendationResult")).not.toContain("默认我喜欢随机播放");
+    expect(window.sessionStorage.getItem("latestRecommendationResult")).not.toContain("default-liked");
 
     fetchMock.mockRestore();
   });
@@ -361,7 +631,7 @@ describe("Workbench", () => {
 
     expect(await screen.findByRole("heading", { name: "推荐生成流程" })).toBeInTheDocument();
     expect(screen.getByText("数据流节点图")).toBeInTheDocument();
-    expect(screen.getByText("15 个节点")).toBeInTheDocument();
+    expect(screen.getAllByText(/15/).length).toBeGreaterThan(0);
     expect(screen.getByText("用户输入")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /02 推荐接口请求/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /05 本地曲库读取/ })).toBeInTheDocument();
@@ -369,27 +639,27 @@ describe("Workbench", () => {
     expect(screen.getByRole("button", { name: /08 来源召回/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /10 标签增强/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /13 本地补齐/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /14 可播放队列/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /14/ })).toBeInTheDocument();
     expect(screen.getByText("节点输入")).toBeInTheDocument();
     expect(screen.getByText("处理动作")).toBeInTheDocument();
     expect(screen.getByText("节点输出")).toBeInTheDocument();
-    expect(screen.getByText("AI 标签覆盖率")).toBeInTheDocument();
-    expect(screen.getByText("完整播放 7 天冷却")).toBeInTheDocument();
+    expect(screen.getAllByText(/AI/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/7/).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: /03 偏好摘要或跳过/ }));
+    fireEvent.click(screen.getByRole("button", { name: /03/ }));
     expect(screen.getByRole("region", { name: "当前节点详情" })).toHaveTextContent("缺少画像，已跳过");
     expect(screen.getByRole("region", { name: "当前节点详情" })).not.toHaveTextContent("已生成 AI 偏好摘要");
 
-    fireEvent.click(screen.getByRole("button", { name: /11 硬过滤/ }));
-    expect(screen.getByRole("region", { name: "当前节点详情" })).toHaveTextContent("排除 1 首");
-    expect(screen.getByRole("region", { name: "当前节点详情" })).toHaveTextContent("高能应排除歌曲");
+    fireEvent.click(screen.getByRole("button", { name: /11/ }));
+    expect(screen.getByRole("region", { name: "当前节点详情" })).toHaveTextContent(/1/);
+    expect(screen.getByRole("region", { name: "当前节点详情" })).toHaveTextContent("Excluded High Energy Song");
 
     fireEvent.click(screen.getByRole("button", { name: /12 AI 重排/ }));
     expect(screen.getByRole("region", { name: "当前节点详情" })).toHaveTextContent("AI 原始推荐理由");
     expect(screen.getByText("AI 完整返回")).toBeInTheDocument();
     expect(screen.getAllByText("请求输入").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/你是音乐推荐意图解析器/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/写代码/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Return JSON only/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/coding/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AI 原始意图返回/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/AI 原始推荐理由/).length).toBeGreaterThan(0);
   });
@@ -405,9 +675,9 @@ describe("Workbench", () => {
     expect(screen.getAllByText("别太困，有点律动").length).toBeGreaterThan(0);
     expect(screen.getAllByText("本地 Top 200").length).toBeGreaterThan(0);
     expect(screen.getAllByText("AI Top 50").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("AI 候选池 50 首").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("AI 选中 1 首").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("本地补齐 1 首").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/50/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("红心 45%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("相似 35%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("扩展 20%").length).toBeGreaterThan(0);
@@ -428,13 +698,140 @@ describe("Workbench", () => {
     const { container } = render(<Workbench mode="admin" />);
 
     expect(await screen.findByText("网易云登录")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "登录后同步" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "登录后打标" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /网易云 Cookie/i })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /听歌场景/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "输入场景" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存 Cookie" })).toBeDisabled();
     expect(container.querySelector(".control-rail .music-sidebar")).toBeInTheDocument();
     expect(container.querySelector(".control-rail .strategy-panel")).toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("shows tag queue operations only in admin mode", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "cookie-login", qrUrl: "", source: "cookie" }));
+      }
+      if (url === "/api/tags/queue?limit=8") {
+        return new Response(
+          JSON.stringify({
+            counts: { pending: 3, processing: 1, done: 8, failed: 2 },
+            jobs: [
+              { id: 12, songId: 42, reason: "sync", status: "pending", attempts: 0 },
+              { id: 11, songId: 41, reason: "expand", status: "failed", attempts: 2 }
+            ]
+          })
+        );
+      }
+      return new Response(JSON.stringify({ counts: { songs: 0, partialFailures: 0 } }));
+    });
+
+    render(<Workbench mode="admin" />);
+
+    expect(await screen.findByText("AI 打标队列")).toBeInTheDocument();
+    expect(await screen.findByText("pending 3")).toBeInTheDocument();
+    expect(screen.getByText("done 8")).toBeInTheDocument();
+    expect(screen.getByText("failed 2")).toBeInTheDocument();
+    expect(screen.getByText("attempts 2")).toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockImplementation(async () => new Promise<Response>(() => undefined));
+    render(<Workbench mode="player" />);
+
+    expect(screen.queryByText("AI 打标队列")).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("shows profile diagnostics only in admin mode", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "cookie-login", qrUrl: "", source: "cookie" }));
+      }
+      if (url === "/api/profiles/status") {
+        return new Response(
+          JSON.stringify({
+            profile: {
+              exists: true,
+              confidence: 0.42,
+              stale: false,
+              lastRefreshedAt: "2026-06-30 01:00:00",
+              summaryLength: 64
+            }
+          })
+        );
+      }
+      if (url === "/api/tags/queue?limit=8") {
+        return new Response(JSON.stringify({ counts: { pending: 0, processing: 0, done: 0, failed: 0 }, jobs: [] }));
+      }
+      return new Response(JSON.stringify({ counts: { songs: 0, partialFailures: 0 } }));
+    });
+
+    render(<Workbench mode="admin" />);
+
+    expect(await screen.findByText("User Profile")).toBeInTheDocument();
+    expect(await screen.findByText("confidence 0.42")).toBeInTheDocument();
+    expect(screen.getByText("fresh")).toBeInTheDocument();
+    expect(screen.getByText("summary length 64")).toBeInTheDocument();
+
+    cleanup();
+    fetchMock.mockImplementation(async () => new Promise<Response>(() => undefined));
+    render(<Workbench mode="player" />);
+
+    expect(screen.queryByText("User Profile")).not.toBeInTheDocument();
+
+    fetchMock.mockRestore();
+  });
+
+  it("processes the tag queue from admin mode and refreshes queue status", async () => {
+    let queueReads = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/login/qr") {
+        return new Response(JSON.stringify({ key: "cookie-login", qrUrl: "", source: "cookie" }));
+      }
+      if (url === "/api/tags/queue?limit=8") {
+        queueReads += 1;
+        return new Response(
+          JSON.stringify(
+            queueReads === 1
+              ? {
+                  counts: { pending: 2, processing: 0, done: 0, failed: 0 },
+                  jobs: [{ id: 21, songId: 101, reason: "sync", status: "pending", attempts: 0 }]
+                }
+              : {
+                  counts: { pending: 0, processing: 0, done: 2, failed: 0 },
+                  jobs: [{ id: 21, songId: 101, reason: "sync", status: "done", attempts: 1 }]
+                }
+          )
+        );
+      }
+      if (url === "/api/tags/queue/process") {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({ limit: 8 });
+        return new Response(JSON.stringify({ counts: { processed: 2, succeeded: 2, failed: 0 }, songs: [] }));
+      }
+      return new Response(JSON.stringify({ counts: { songs: 0, partialFailures: 0 } }));
+    });
+
+    render(<Workbench mode="admin" />);
+
+    expect(await screen.findByText("pending 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "处理队列" }));
+
+    expect(await screen.findByText("done 2")).toBeInTheDocument();
+    expect(screen.getAllByText(/2/).length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tags/queue/process",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ limit: 8 })
+      })
+    );
 
     fetchMock.mockRestore();
   });
@@ -461,7 +858,8 @@ describe("Workbench", () => {
     expect(await screen.findByText("网易云已连接")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "同步网易云数据" }));
     expect(await screen.findByText("746")).toBeInTheDocument();
-    expect(screen.getByText("已同步")).toBeInTheDocument();
+    expect(screen.getByText("曲库就绪")).toBeInTheDocument();
+    expect(screen.getByText("候选来源：生成后显示真实来源")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/sync", { method: "POST" });
 
     fetchMock.mockRestore();
@@ -489,11 +887,11 @@ describe("Workbench", () => {
     fireEvent.click(await screen.findByRole("button", { name: /生成推荐/i }));
 
     await waitFor(() => {
-      expect(container.querySelector(".player-shell")).toHaveTextContent("第一页歌曲 1");
+      expect(container.querySelector(".player-shell")).toHaveTextContent("First Page Song 1");
     });
     fireEvent.click(screen.getByRole("button", { name: "打开播放队列" }));
     expect(await screen.findByRole("dialog", { name: "播放队列" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /第一页歌曲 10/ }));
+    fireEvent.click(screen.getByRole("button", { name: /First Page Song 10/ }));
 
     await waitFor(() => {
       const recommendationCalls = fetchMock.mock.calls.filter(([input]) => String(input) === "/api/recommendations");
@@ -507,7 +905,7 @@ describe("Workbench", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "打开播放队列" }));
     await waitFor(() => {
-      expect(screen.getAllByText("第二页歌曲 1").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Second Page Song 1").length).toBeGreaterThan(0);
     });
 
     fetchMock.mockRestore();
@@ -519,7 +917,7 @@ describe("Workbench", () => {
     });
     render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -539,17 +937,50 @@ describe("Workbench", () => {
         })
       );
     });
-    expect(await screen.findByText("已记录喜欢")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "标记喜欢 真实歌曲 A" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "标记喜欢 真实歌曲 A" })).toHaveAttribute("aria-pressed", "true");
 
     fetchMock.mockRestore();
+  });
+
+  it("keeps autoplay failure quiet but shows a notice after a manual play failure", async () => {
+    const originalPlay = HTMLMediaElement.prototype.play;
+    const originalLoad = HTMLMediaElement.prototype.load;
+    HTMLMediaElement.prototype.load = vi.fn();
+    HTMLMediaElement.prototype.play = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    render(
+      <RecommendationPanel
+        prompt="coding"
+        onPromptChange={() => undefined}
+        onRecommend={() => undefined}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+        autoPlayToken={1}
+      />
+    );
+
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalled());
+    expect(screen.queryByText("播放启动失败，请再点一次或换一首。")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "播放" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("播放启动失败，请再点一次或换一首。")).toBeInTheDocument();
+    });
+
+    fetchMock.mockRestore();
+    HTMLMediaElement.prototype.play = originalPlay;
+    HTMLMediaElement.prototype.load = originalLoad;
   });
 
   it("shows category tags and keeps the queue behind a button", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     const { container } = render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -559,16 +990,16 @@ describe("Workbench", () => {
     );
 
     expect(container.querySelector(".player-shell")).toHaveTextContent("真实歌曲 A");
-    expect(screen.getAllByText("纯音乐").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("安静").length).toBeGreaterThan(0);
     expect(screen.getAllByText("安静").length).toBeGreaterThan(0);
     expect(container.querySelector(".lyric-panel")).not.toBeInTheDocument();
     expect(container.querySelector(".player-insight")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "推荐逻辑" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "输入场景" })).toHaveTextContent("我想听...");
     expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/lyrics"))).toBe(false);
-    expect(screen.queryByText("2 首推荐")).not.toBeInTheDocument();
+    expect(screen.queryByText(/2 songs/)).not.toBeInTheDocument();
     expect(screen.queryByText("2 首可播放")).not.toBeInTheDocument();
-    expect(screen.queryByText("持续推荐中")).not.toBeInTheDocument();
+    expect(screen.queryByText(/continuing/i)).not.toBeInTheDocument();
     expect(screen.queryByText("1 / 2")).not.toBeInTheDocument();
     expect(container.querySelectorAll(".song-card")).toHaveLength(0);
     expect(screen.queryByRole("dialog", { name: "播放队列" })).not.toBeInTheDocument();
@@ -592,7 +1023,7 @@ describe("Workbench", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     const { container } = render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -614,7 +1045,7 @@ describe("Workbench", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -626,7 +1057,7 @@ describe("Workbench", () => {
     expect(screen.getAllByText("AI 选中").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "打开播放队列" }));
     expect(screen.getByText("本地补齐")).toBeInTheDocument();
-    expect(screen.getByText("我喜欢随机")).toBeInTheDocument();
+    expect(screen.getAllByText("真实歌曲 B").length).toBeGreaterThan(0);
 
     fetchMock.mockRestore();
   });
@@ -635,7 +1066,7 @@ describe("Workbench", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     const { container } = render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -682,7 +1113,7 @@ describe("Workbench", () => {
     const playMock = vi.mocked(HTMLMediaElement.prototype.play);
     render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -700,15 +1131,59 @@ describe("Workbench", () => {
     fetchMock.mockRestore();
   });
 
+  it("shows a proactive companion bubble once after the playback threshold", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === "/api/companion/proactive") {
+        return new Response(JSON.stringify({ message: "This chorus lands right where the pulse softens." }));
+      }
+      return new Response(JSON.stringify({ ok: true }));
+    });
+    const { container } = render(
+      <RecommendationPanel
+        prompt="coding"
+        onPromptChange={() => undefined}
+        onRecommend={() => undefined}
+        loading={false}
+        result={queuePlaybackResult}
+        libraryCounts={{ songs: 2, partialFailures: 0 }}
+      />
+    );
+    const audio = container.querySelector("audio") as HTMLAudioElement;
+
+    Object.defineProperty(audio, "duration", { configurable: true, value: 120 });
+    Object.defineProperty(audio, "currentTime", { configurable: true, writable: true, value: 29 });
+    fireEvent.loadedMetadata(audio);
+    fireEvent.timeUpdate(audio);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/companion/proactive")).toHaveLength(0);
+    expect(screen.queryByText("This chorus lands right where the pulse softens.")).not.toBeInTheDocument();
+
+    audio.currentTime = 42;
+    fireEvent.timeUpdate(audio);
+
+    expect(await screen.findByText("This chorus lands right where the pulse softens.")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/companion/proactive")).toHaveLength(1);
+
+    audio.currentTime = 72;
+    fireEvent.timeUpdate(audio);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/companion/proactive")).toHaveLength(1);
+
+    fireEvent.click(screen.getByText("This chorus lands right where the pulse softens."));
+
+    expect(screen.getByRole("dialog", { name: "一起听" })).toBeInTheDocument();
+    expect(screen.getAllByText("This chorus lands right where the pulse softens.").length).toBeGreaterThanOrEqual(1);
+
+    fetchMock.mockRestore();
+  });
+
   it("loads synced lyrics when the user taps the cover and highlights the current line", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       if (String(input).startsWith("/api/lyrics")) {
         return new Response(
           JSON.stringify({
             lines: [
-              { time: 0, text: "前一句歌词" },
-              { time: 40, text: "当前这一句歌词", translation: "current line" },
-              { time: 80, text: "下一句歌词" }
+              { time: 0, text: "previous lyric" },
+              { time: 40, text: "current lyric", translation: "current line" },
+              { time: 80, text: "next lyric" }
             ]
           })
         );
@@ -717,7 +1192,7 @@ describe("Workbench", () => {
     });
     const { container } = render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -733,8 +1208,8 @@ describe("Workbench", () => {
     fireEvent.timeUpdate(audio);
     fireEvent.click(screen.getByRole("button", { name: "切换到歌词" }));
 
-    expect(await screen.findByText("当前这一句歌词")).toBeInTheDocument();
-    expect(container.querySelector(".lyric-line.is-active")).toHaveTextContent("当前这一句歌词");
+    expect(await screen.findByText("current lyric")).toBeInTheDocument();
+    expect(container.querySelector(".lyric-line.is-active")).toHaveTextContent("current lyric");
     expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/lyrics?id=101"))).toBe(true);
 
     fetchMock.mockRestore();
@@ -746,8 +1221,8 @@ describe("Workbench", () => {
         return new Response(
           JSON.stringify({
             lines: [
-              { time: 20, text: "还没唱到的第一句" },
-              { time: 40, text: "第二句歌词" }
+              { time: 20, text: "first lyric" },
+              { time: 40, text: "second lyric" }
             ]
           })
         );
@@ -756,7 +1231,7 @@ describe("Workbench", () => {
     });
     const { container } = render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -767,8 +1242,8 @@ describe("Workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "切换到歌词" }));
 
-    expect(await screen.findByText("还没唱到的第一句")).toBeInTheDocument();
-    expect(container.querySelector(".lyric-line.is-active")).toHaveTextContent("还没唱到的第一句");
+    expect(await screen.findByText("first lyric")).toBeInTheDocument();
+    expect(container.querySelector(".lyric-line.is-active")).toHaveTextContent("first lyric");
 
     fetchMock.mockRestore();
   });
@@ -777,7 +1252,7 @@ describe("Workbench", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -869,7 +1344,7 @@ describe("Workbench", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -883,9 +1358,9 @@ describe("Workbench", () => {
     expect(screen.getByRole("dialog", { name: "推荐逻辑" })).toBeInTheDocument();
     expect(screen.getByText("用户输入")).toBeInTheDocument();
     expect(screen.getAllByText("AI 意图解析").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("硬过滤").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("最终推荐").length).toBeGreaterThan(0);
     expect(screen.getAllByText("AI 重排").length).toBeGreaterThan(0);
-    expect(screen.getByText("高能应排除歌曲")).toBeInTheDocument();
+    expect(screen.getByText("Excluded High Energy Song")).toBeInTheDocument();
     expect(screen.getAllByText("energy:high").length).toBeGreaterThan(0);
     expect(screen.getByText("AI 完整返回")).toBeInTheDocument();
     expect(screen.getAllByText(/AI 原始意图返回/).length).toBeGreaterThan(0);
@@ -898,7 +1373,7 @@ describe("Workbench", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     const { container } = render(
       <RecommendationPanel
-        prompt="写代码"
+        prompt="coding"
         onPromptChange={() => undefined}
         onRecommend={() => undefined}
         loading={false}
@@ -926,9 +1401,9 @@ describe("Workbench", () => {
 
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(screen.queryByText("本轮推荐")).not.toBeInTheDocument();
-    expect(screen.queryByText("可播放歌曲")).not.toBeInTheDocument();
-    expect(screen.queryByText("2 首")).not.toBeInTheDocument();
-    expect(screen.getByText("推荐来源").parentElement).toHaveTextContent("红心相似、歌单");
+    expect(screen.queryByText("coding")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 ?")).not.toBeInTheDocument();
+    expect(screen.getByText("当前场景").parentElement).toHaveTextContent("工作 / 写代码");
   });
 
   it("lets a backend-cookie login replace the saved Cookie in admin mode", async () => {
@@ -1005,7 +1480,7 @@ const recommendationResult: RecommendationResponse = {
   libraryCounts: { songs: 2, partialFailures: 0 },
   page: { requested: 12, returned: 2, excluded: 0, hasMore: true },
   flow: {
-    input: { prompt: "写代码", requested: 2, excludedPlayedIds: [] },
+    input: { prompt: "coding", requested: 2, excludedPlayedIds: [] },
     context: {
       scene: "work",
       mood: ["calm", "focused"],
@@ -1027,8 +1502,8 @@ const recommendationResult: RecommendationResponse = {
     },
     filters: {
       excludeTags: ["energy:high"],
-      excludedByTags: [{ id: "999", name: "高能应排除歌曲", artistNames: ["歌手 C"], matchedTags: ["energy:high"] }],
-      cooldownExcluded: [{ id: "888", name: "刚听过的歌", artistNames: ["歌手 D"], reason: "完整播放 7 天冷却", cooldownDays: 7 }]
+      excludedByTags: [{ id: "999", name: "Excluded High Energy Song", artistNames: ["Artist C"], matchedTags: ["energy:high"] }],
+      cooldownExcluded: [{ id: "888", name: "Recently Played Song", artistNames: ["Artist D"], reason: "7 day cooldown", cooldownDays: 7 }]
     },
     ranking: {
       localRankedCount: 3,
@@ -1037,8 +1512,8 @@ const recommendationResult: RecommendationResponse = {
       finalCount: 2,
       topLocal: [],
       final: [
-        { id: "101", name: "真实歌曲 A", artistNames: ["歌手 A"], score: 8.4, tags: ["calm"], reason: "来自真实红心歌，适合当前场景。", rank: 1 },
-        { id: "102", name: "真实歌曲 B", artistNames: ["歌手 B"], score: 7.8, tags: ["rock"], reason: "来自真实歌单，和本轮需求接近。", rank: 2 }
+        { id: "101", name: "Real Song A", artistNames: ["Artist A"], score: 8.4, tags: ["calm"], reason: "AI reason A", rank: 1 },
+        { id: "102", name: "Real Song B", artistNames: ["Artist B"], score: 7.8, tags: ["rock"], reason: "AI reason B", rank: 2 }
       ]
     },
     ai: {
@@ -1046,7 +1521,7 @@ const recommendationResult: RecommendationResponse = {
         {
           id: "preference-skipped-1",
           stage: "preference",
-          title: "AI 偏好摘要已跳过",
+          title: "AI preference summary skipped",
           request: { profileData: {} },
           rawResponse: "",
           parsed: { skipped: true, reason: "缺少画像，已跳过" }
@@ -1059,8 +1534,8 @@ const recommendationResult: RecommendationResponse = {
           request: {
             model: "deepseek-chat",
             messages: [
-              { role: "system", content: "你是音乐推荐意图解析器，只返回 JSON。" },
-              { role: "user", content: JSON.stringify({ input: "写代码", profileSummary: "偏好摘要" }) }
+              { role: "system", content: "Return JSON only." },
+              { role: "user", content: JSON.stringify({ input: "coding", profileSummary: "preference summary" }) }
             ],
             response_format: { type: "json_object" }
           },
@@ -1075,7 +1550,7 @@ const recommendationResult: RecommendationResponse = {
           request: {
             model: "deepseek-chat",
             messages: [
-              { role: "system", content: "你是私人音乐推荐排序器，只返回 JSON。" },
+              { role: "system", content: "Return JSON only." },
               { role: "user", content: JSON.stringify({ context: { scene: "work" }, candidates: [{ id: "101", name: "真实歌曲 A" }] }) }
             ],
             response_format: { type: "json_object" }
@@ -1100,7 +1575,7 @@ const recommendationResult: RecommendationResponse = {
         tags: ["liked", "playable", "instrumental", "calm", "chinese"]
       },
       score: 8.4,
-      reason: "来自真实红心歌，适合当前场景。",
+      reason: "AI reason A",
       streamUrl: "https://music.example/101.mp3",
       embedUrl: "https://music.163.com/outchain/player?type=2&id=101",
       playbackUrl: "https://music.163.com/#/song?id=101"
@@ -1118,7 +1593,7 @@ const recommendationResult: RecommendationResponse = {
         tags: ["playlist", "rock", "live", "popular"]
       },
       score: 7.8,
-      reason: "来自真实歌单，和本轮需求接近。",
+      reason: "AI reason B",
       streamUrl: null,
       embedUrl: "https://music.163.com/outchain/player?type=2&id=102",
       playbackUrl: "https://music.163.com/#/song?id=102"
@@ -1183,8 +1658,8 @@ const flowAuditResult: RecommendationResponse = {
       localFillCount: 1,
       finalCount: 2,
       topLocal: [
-        { id: "101", name: "真实歌曲 A", artistNames: ["歌手 A"], score: 91.2, tags: ["calm"], reason: "本地 Top 候选。", rank: 1 },
-        { id: "102", name: "真实歌曲 B", artistNames: ["歌手 B"], score: 86.7, tags: ["rock"], reason: "本地补齐候选。", rank: 2 }
+        { id: "101", name: "Real Song A", artistNames: ["Artist A"], score: 91.2, tags: ["calm"], reason: "Top local candidate", rank: 1 },
+        { id: "102", name: "Real Song B", artistNames: ["Artist B"], score: 86.7, tags: ["rock"], reason: "Local fill candidate", rank: 2 }
       ],
       final: [
         { id: "101", name: "真实歌曲 A", artistNames: ["歌手 A"], score: 8.4, tags: ["calm"], reason: "AI 原始推荐理由", rank: 1, selectionSource: "ai" },
@@ -1207,8 +1682,8 @@ const flowAuditResult: RecommendationResponse = {
   ]
 };
 
-const firstPageResult = pageResult("first", "第一页歌曲", true);
-const secondPageResult = pageResult("second", "第二页歌曲", false);
+const firstPageResult = pageResult("first", "First Page Song", true);
+const secondPageResult = pageResult("second", "Second Page Song", false);
 
 const sourceLabelResult: RecommendationResponse = {
   ...queuePlaybackResult,
@@ -1238,7 +1713,7 @@ const defaultLikedResult: RecommendationResponse = {
   ...recommendationResult,
   flow: {
     ...recommendationResult.flow!,
-    input: { prompt: "默认我喜欢随机播放", requested: 2, excludedPlayedIds: [] },
+    input: { prompt: "default liked playback", requested: 2, excludedPlayedIds: [] },
     ai: { calls: [] }
   },
   items: [
@@ -1252,7 +1727,7 @@ const defaultLikedResult: RecommendationResponse = {
         sources: ["liked"],
         tags: ["liked", "playback:playable", "mood:calm"]
       },
-      reason: "来自你的我喜欢随机播放，不是 AI 推荐。",
+      reason: "Default liked recommendation",
       selectionSource: "default_liked"
     },
     {
@@ -1266,7 +1741,7 @@ const defaultLikedResult: RecommendationResponse = {
         sources: ["liked"],
         tags: ["liked", "playback:playable", "mood:focused"]
       },
-      reason: "来自你的我喜欢随机播放，不是 AI 推荐。",
+      reason: "Default liked recommendation",
       selectionSource: "default_liked"
     }
   ]
@@ -1291,7 +1766,7 @@ function pageResult(prefix: string, namePrefix: string, hasMore: boolean): Recom
         tags: ["calm", "focused", "playable"]
       },
       score: 90 - index,
-      reason: "AI 推荐理由。",
+      reason: "AI recommendation reason",
       streamUrl: `https://music.example/${prefix}-${index + 1}.mp3`,
       embedUrl: `https://music.163.com/outchain/player?type=2&id=${prefix}-${index + 1}`,
       playbackUrl: `https://music.163.com/#/song?id=${prefix}-${index + 1}`

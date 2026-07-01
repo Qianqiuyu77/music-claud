@@ -43,6 +43,7 @@ describe("providers", () => {
     await expect(provider.getLoginStatus("qr-key-1")).resolves.toEqual({
       status: "authorized",
       encryptedCookie: expect.stringContaining("local-dev:"),
+      rawCookie: "MUSIC_U=secret-cookie",
       source: "qr"
     });
     expect(Buffer.from(qr.qrUrl.split(",")[1] ?? "", "base64").length).toBeGreaterThan(500);
@@ -242,6 +243,66 @@ describe("providers", () => {
     expect(result.songs).toHaveLength(365);
     expect(result.songs[0].neteaseSongId).toBe("1000");
     expect(result.songs.at(-1)?.neteaseSongId).toBe("1364");
+  });
+
+  it("imports a bounded quick library without walking every playlist", async () => {
+    const originalCookie = process.env.NETEASE_COOKIE;
+    process.env.NETEASE_COOKIE = "MUSIC_U=test-cookie";
+    const calls: string[] = [];
+    const likedIds = Array.from({ length: 365 }, (_, index) => 2000 + index);
+    const provider = new NeteaseCloudProvider(async (path, params) => {
+      calls.push(path);
+      if (path === "/user/account") {
+        return { body: { code: 200, profile: { userId: 42 } } };
+      }
+      if (path === "/likelist") {
+        return { body: { code: 200, ids: likedIds } };
+      }
+      if (path === "/record/recent/song") {
+        return { body: { code: 200, data: [{ resourceId: 9001 }] } };
+      }
+      if (path === "/song/detail") {
+        const ids = String(params?.ids)
+          .split(",")
+          .filter(Boolean)
+          .map(Number);
+        return {
+          body: {
+            code: 200,
+            songs: ids.map((id) => ({
+              id,
+              name: `Quick ${id}`,
+              ar: [{ name: "Quick Artist" }],
+              al: { name: "Quick Album", picUrl: null },
+              dt: 200000,
+              pop: 80
+            }))
+          }
+        };
+      }
+      if (path === "/song/url") {
+        const ids = String(params?.id)
+          .split(",")
+          .filter(Boolean)
+          .map(Number);
+        return {
+          body: {
+            code: 200,
+            data: ids.map((id) => ({ id, url: `https://music.example/${id}.mp3` }))
+          }
+        };
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+
+    const result = await provider.importLibrary("MUSIC_U=test-cookie", { quick: true, limit: 120 });
+    process.env.NETEASE_COOKIE = originalCookie;
+
+    expect(result.songs).toHaveLength(120);
+    expect(result.songs[0].neteaseSongId).toBe("2000");
+    expect(result.songs.at(-1)?.neteaseSongId).toBe("2119");
+    expect(calls).not.toContain("/user/playlist");
+    expect(calls).toContain("/record/recent/song");
   });
 
   it("assigns distinct category tags from observable NetEase song metadata", async () => {

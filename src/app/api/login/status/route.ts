@@ -1,4 +1,5 @@
-import { getLoginStatusPreview } from "@/lib/appServices";
+import { getLoginStatusPreview, resolveCurrentUserForRequest } from "@/lib/appServices";
+import { hasSignedSessionCookie } from "@/lib/user/sessionCookie";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -6,5 +7,10 @@ export async function GET(request: Request) {
   if (!key) {
     return Response.json({ error: "missing key" }, { status: 400 });
   }
-  return Response.json(await getLoginStatusPreview(key));
+  if (!hasSignedSessionCookie(request)) {
+    await getLoginStatusPreview(key, true, undefined, { persist: false });
+    return Response.json({ status: "waiting" });
+  }
+  const user = await resolveCurrentUserForRequest(request);
+  return Response.json(await getLoginStatusPreview(key, url.searchParams.get("force") === "1", undefined, { userId: user.id }));
 }

@@ -1,6 +1,11 @@
+import { canAccessAdmin } from "@/lib/admin/access";
 import { tagStoredLibraryBatch } from "@/lib/appServices";
 
 export async function POST(request: Request) {
+  if (!(await canAccessAdmin(request))) {
+    return new Response(null, { status: 404 });
+  }
+
   try {
     const body = (await request.json().catch(() => ({}))) as { limit?: number };
     const result = await tagStoredLibraryBatch(body.limit);

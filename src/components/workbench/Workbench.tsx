@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { DataPanel } from "./DataPanel";
 import { RecommendationPanel, type RecommendationResponse } from "./RecommendationPanel";
 import { StrategyPanel } from "./StrategyPanel";
+import { ProfileDiagnosticsPanel } from "@/components/admin/ProfileDiagnosticsPanel";
+import { TagQueuePanel } from "@/components/admin/TagQueuePanel";
 import type { RecommendationMode, RecommendationScene } from "@/lib/recommendation/types";
+
+const LOGIN_STATUS_POLL_INTERVAL_MS = 1000;
 
 type LoginStatus = "waiting" | "scanned" | "authorized" | "expired";
 type LoginState = {
@@ -13,9 +17,16 @@ type LoginState = {
   status: LoginStatus;
   source?: "cookie" | "qr";
 };
+type SafeLoginState = {
+  provider: "netease";
+  status: "active" | "expired" | "missing";
+  source?: "cookie" | "qr";
+  lastVerifiedAt?: string;
+};
 
 type WorkbenchProps = {
   mode?: "player" | "admin";
+  silentSyncOnFirstUse?: boolean;
 };
 
 type LibraryCounts = {
@@ -26,7 +37,7 @@ type LibraryCounts = {
   partialFailures: number;
 };
 
-export function Workbench({ mode = "player" }: WorkbenchProps) {
+export function Workbench({ mode = "player", silentSyncOnFirstUse = false }: WorkbenchProps) {
   const [prompt, setPrompt] = useState("");
   const [recommendationMode, setRecommendationMode] = useState<RecommendationMode>("balanced");
   const [recommendationScene, setRecommendationScene] = useState<RecommendationScene>("general");
@@ -39,6 +50,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
   const [syncCounts, setSyncCounts] = useState<LibraryCounts | null>(null);
   const [syncFailures, setSyncFailures] = useState<string[]>([]);
   const [syncLoading, setSyncLoading] = useState(false);
+  const [silentSyncLoading, setSilentSyncLoading] = useState(false);
   const [expandLoading, setExpandLoading] = useState(false);
   const [tagLoading, setTagLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -46,14 +58,18 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
   const [autoPlayToken, setAutoPlayToken] = useState(0);
   const [lastRecommendationPrompt, setLastRecommendationPrompt] = useState("");
   const resultRef = useRef<RecommendationResponse | null>(null);
-  const loginAuthorized = login?.status === "authorized" || login?.source === "cookie";
+  const silentSyncAttemptedRef = useRef(false);
+  const loginAuthorized = login?.status === "authorized" || (login?.source === "cookie" && login.status !== "expired");
   const showAdmin = mode === "admin";
+  const showConsumerLogin =
+    mode === "player" && silentSyncOnFirstUse && !loginChecking && !loginAuthorized && !result && !silentSyncLoading && (syncCounts?.songs ?? 0) === 0;
+  const showConsumerPreparing = mode === "player" && silentSyncOnFirstUse && !result && silentSyncLoading;
 
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setInterval> | null = null;
 
-    fetch("/api/login/qr")
+    const loadQrLogin = (force = false) => fetch(force ? "/api/login/qr?force=1" : "/api/login/qr")
       .then((response) => response.json())
       .then((data: { key: string; qrUrl: string; source?: "cookie" | "qr" }) => {
         if (!active) return;
@@ -62,9 +78,10 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
         if (data.source === "cookie") return;
 
         timer = setInterval(() => {
-          fetch(`/api/login/status?key=${encodeURIComponent(data.key)}`)
+          const statusUrl = `/api/login/status?key=${encodeURIComponent(data.key)}${force ? "&force=1" : ""}`;
+          fetch(statusUrl)
             .then((response) => response.json())
-            .then((status: { status: LoginStatus; encryptedCookie?: string; source?: "cookie" | "qr" }) => {
+            .then((status: { status: LoginStatus; source?: "cookie" | "qr" }) => {
               if (!active) return;
               setLogin((current) => (current ? { ...current, status: status.status, source: status.source ?? current.source } : current));
               if (status.status === "authorized" || status.status === "expired") {
@@ -72,7 +89,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
               }
             })
             .catch(() => undefined);
-        }, 2500);
+        }, LOGIN_STATUS_POLL_INTERVAL_MS);
       })
       .catch(() => {
         if (active) {
@@ -81,11 +98,36 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
         }
       });
 
+    const shouldCheckSafeLoginState = mode === "player" && silentSyncOnFirstUse;
+    const loginRequest = shouldCheckSafeLoginState
+      ? ensureConsumerSession()
+          .then(() => fetch("/api/login/state"))
+          .then((response) => response.json())
+          .then((data: { login?: SafeLoginState | null }) => data.login?.status === "expired")
+          .catch(() => false)
+          .then((isExpired) => loadQrLogin(isExpired))
+      : loadQrLogin(false);
+
+    loginRequest.catch(() => {
+      if (active) {
+        setLoginChecking(false);
+        setLogin(null);
+      }
+    });
+
     return () => {
       active = false;
       if (timer) clearInterval(timer);
     };
   }, []);
+
+  async function ensureConsumerSession() {
+    await fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }).catch(() => undefined);
+  }
 
   useEffect(() => {
     let active = true;
@@ -96,13 +138,17 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
         setSyncCounts(data.counts);
         if (mode === "player" && data.counts.songs > 0) {
           void loadDefaultQueue(active);
+          return;
+        }
+        if (mode === "player" && silentSyncOnFirstUse && loginAuthorized && data.counts.songs === 0) {
+          void runSilentFirstUseSync(active);
         }
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [mode]);
+  }, [mode, silentSyncOnFirstUse, loginAuthorized]);
 
   async function loadDefaultQueue(active: boolean) {
     try {
@@ -121,6 +167,29 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
     }
   }
 
+  async function runSilentFirstUseSync(active: boolean) {
+    if (silentSyncAttemptedRef.current) return;
+    silentSyncAttemptedRef.current = true;
+    setSilentSyncLoading(true);
+    try {
+      const response = await fetch("/api/sync?mode=quick", { method: "POST" });
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        counts: { songs: number; playableSongs?: number; imported?: number; lastSyncAt?: string | null; partialFailures: number };
+        partialFailures?: string[];
+      };
+      if (!active) return;
+      setSyncCounts(data.counts);
+      if (data.counts.songs > 0) {
+        await loadDefaultQueue(active);
+      }
+    } catch {
+      // Keep first-use sync quiet on the C side; users can still request recommendations manually.
+    } finally {
+      if (active) setSilentSyncLoading(false);
+    }
+  }
+
   async function saveCookie() {
     setCookieSaving(true);
     setErrorMessage(null);
@@ -132,7 +201,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        setErrorMessage(data.error ?? "Cookie 保存失败，请重新复制网易云 Cookie。");
+        setErrorMessage(data.error ?? "Cookie 无法保存，请检查后重试。");
         return;
       }
       setCookieText("");
@@ -153,7 +222,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
 
   async function syncLibrary() {
     if (!loginAuthorized) {
-      setErrorMessage("请先保存有效的网易云 Cookie，再同步真实曲库。");
+      setErrorMessage("请先连接网易云账号。");
       return;
     }
     setSyncLoading(true);
@@ -163,7 +232,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       const response = await fetch("/api/sync", { method: "POST" });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
-        setErrorMessage(data.error ?? "同步失败，请检查网易云 Cookie 是否有效。");
+        setErrorMessage(data.error ?? "同步失败，请稍后重试。");
         return;
       }
       const data = (await response.json()) as {
@@ -173,7 +242,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       setSyncCounts(data.counts);
       setSyncFailures(data.partialFailures ?? []);
     } catch {
-      setErrorMessage("同步失败，请检查本地服务和网易云 Cookie 是否有效。");
+      setErrorMessage("同步失败，请检查网易云登录状态。");
     } finally {
       setSyncLoading(false);
     }
@@ -181,7 +250,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
 
   async function expandLibrary() {
     if (!loginAuthorized) {
-      setErrorMessage("请先保存有效的网易云 Cookie，再扩充真实曲库。");
+      setErrorMessage("请先连接网易云账号。");
       return;
     }
     setExpandLoading(true);
@@ -191,7 +260,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       const response = await fetch("/api/expand", { method: "POST" });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
-        setErrorMessage(data.error ?? "扩充曲库失败，请稍后再试。");
+        setErrorMessage(data.error ?? "扩充曲库失败，请稍后重试。");
         return;
       }
       const data = (await response.json()) as {
@@ -201,7 +270,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       setSyncCounts(data.counts);
       setSyncFailures(data.partialFailures ?? []);
     } catch {
-      setErrorMessage("扩充曲库失败，请检查本地服务和网易云 Cookie 是否有效。");
+      setErrorMessage("扩充曲库失败，请检查网易云登录状态。");
     } finally {
       setExpandLoading(false);
     }
@@ -209,7 +278,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
 
   async function tagLibrary() {
     if (!loginAuthorized) {
-      setErrorMessage("请先保存有效的网易云 Cookie，再补充 AI 标签。");
+      setErrorMessage("请先连接网易云账号，再补充 AI 标签。");
       return;
     }
     setTagLoading(true);
@@ -223,7 +292,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
-        setErrorMessage(data.error ?? "AI 打标失败，请稍后再试。");
+        setErrorMessage(data.error ?? "AI 标签补充失败。");
         return;
       }
       const data = (await response.json()) as {
@@ -233,7 +302,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       setSyncCounts(data.counts);
       setSyncFailures(data.partialFailures ?? []);
     } catch {
-      setErrorMessage("AI 打标失败，请检查本地服务和 DeepSeek 配置。");
+      setErrorMessage("AI 标签补充失败，请检查 DeepSeek 配置。");
     } finally {
       setTagLoading(false);
     }
@@ -243,7 +312,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
     const requestPrompt = append ? lastRecommendationPrompt || result?.flow?.input.prompt || prompt : prompt;
     const requestMode = options?.mode ?? recommendationMode;
     if (!requestPrompt.trim()) {
-      setErrorMessage("请输入当前想听歌的场景。");
+      setErrorMessage("请先输入听歌场景。");
       return;
     }
     setLoading(true);
@@ -265,7 +334,7 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
       const data = (await response.json()) as RecommendationResponse | { error?: string };
       if (!response.ok || !("items" in data)) {
         setResult(null);
-        setErrorMessage("error" in data && data.error ? data.error : "推荐生成失败，请稍后再试。");
+        setErrorMessage("error" in data && data.error ? data.error : "推荐生成失败，请稍后重试。");
         return;
       }
       const nextResult =
@@ -320,25 +389,74 @@ export function Workbench({ mode = "player" }: WorkbenchProps) {
             onTag={tagLibrary}
           />
           <StrategyPanel result={result} libraryCounts={syncCounts} />
+          <ProfileDiagnosticsPanel />
+          <TagQueuePanel />
         </div>
       ) : null}
-      <RecommendationPanel
-        prompt={prompt}
-        recommendationMode={recommendationMode}
-        recommendationScene={recommendationScene}
-        onPromptChange={setPrompt}
-        onModeChange={setRecommendationMode}
-        onSceneChange={setRecommendationScene}
-        onRecommend={(options) => requestRecommendations(false, options)}
-        onLoadMore={() => requestRecommendations(true)}
-        loading={loading}
-        disabledReason={prompt.trim() ? undefined : "prompt"}
-        result={result}
-        libraryCounts={syncCounts}
-        errorMessage={errorMessage}
-        autoPlayToken={autoPlayToken}
-      />
+      {showConsumerLogin ? (
+        <ConsumerLoginPanel login={login} />
+      ) : showConsumerPreparing ? (
+        <ConsumerPreparingPanel />
+      ) : (
+        <RecommendationPanel
+          prompt={prompt}
+          recommendationMode={recommendationMode}
+          recommendationScene={recommendationScene}
+          onPromptChange={setPrompt}
+          onModeChange={setRecommendationMode}
+          onSceneChange={setRecommendationScene}
+          onRecommend={(options) => requestRecommendations(false, options)}
+          onLoadMore={() => requestRecommendations(true)}
+          loading={loading}
+          disabledReason={prompt.trim() ? undefined : "prompt"}
+          result={result}
+          libraryCounts={syncCounts}
+          errorMessage={errorMessage}
+          autoPlayToken={autoPlayToken}
+        />
+      )}
     </div>
+  );
+}
+
+function ConsumerPreparingPanel() {
+  return (
+    <main className="music-stage">
+      <section className="empty-player">
+        <div className="vinyl">
+          <span className="cover-mark">AI</span>
+        </div>
+        <div>
+          <p className="eyebrow">网易云已连接</p>
+          <h3>马上开始听歌</h3>
+          <p>已经连接网易云，我正在为你打开第一批歌曲。</p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function ConsumerLoginPanel({ login }: { login: LoginState | null }) {
+  const isExpired = login?.status === "expired";
+  const isScanned = login?.status === "scanned";
+
+  return (
+    <main className="music-stage">
+      <section className="empty-player">
+        <div className="qr-frame">
+          {login?.qrUrl && !isExpired ? <img src={login.qrUrl} alt="网易云扫码登录二维码" /> : <span>二维码暂不可用，请稍后再试</span>}
+        </div>
+        <div>
+          <p className="eyebrow">网易云登录</p>
+          <h3>{isExpired ? "登录已过期" : "扫码连接网易云"}</h3>
+          <p>{isScanned ? "已经扫码确认，我正在为你打开歌曲。" : "用网易云音乐 App 扫码后，我会在后台准备你的第一批歌曲。"}</p>
+          <div className="empty-status-row">
+            <span>状态</span>
+            <strong>{isExpired ? "重新登录" : isScanned ? "已确认" : "等待扫码"}</strong>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 

@@ -69,6 +69,7 @@ export function RecommendationPanel({
   const shouldAutoPlayRef = useRef(false);
   const previousFirstIdRef = useRef<string | null>(null);
   const reportedPlaybackRef = useRef<Set<string>>(new Set());
+  const proactiveTriggeredRef = useRef<Set<string>>(new Set());
   const [feedbackStatus, setFeedbackStatus] = useState<Record<string, string>>({});
   const [selectedFeedback, setSelectedFeedback] = useState<Record<string, "like" | "dislike" | "too_familiar">>({});
   const [activeIndex, setActiveIndex] = useState(0);
@@ -89,6 +90,7 @@ export function RecommendationPanel({
   const [chatDraft, setChatDraft] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSending, setChatSending] = useState(false);
+  const [proactiveMessage, setProactiveMessage] = useState<string | null>(null);
   const items = result?.items ?? [];
   const activeItem = items[activeIndex] ?? items[0] ?? null;
   const activePlaybackSrc = activeItem?.streamUrl ? playbackProxyUrl(activeItem.song.neteaseSongId) : null;
@@ -135,6 +137,7 @@ export function RecommendationPanel({
   useEffect(() => {
     setCurrentTime(0);
     setDuration(0);
+    setProactiveMessage(null);
     setPlayerView("cover");
     setLyricLines([]);
     setLyricsSongId(null);
@@ -162,7 +165,7 @@ export function RecommendationPanel({
     const audio = audioRef.current;
     if (!audio) return;
     shouldAutoPlayRef.current = true;
-    playAudio(audio, setIsPlaying, setPlaybackNotice);
+    playAudio(audio, setIsPlaying);
   }, [autoPlayToken, activePlaybackSrc]);
 
   async function saveFeedback(itemId: string, feedback: "like" | "dislike" | "too_familiar") {
@@ -218,6 +221,7 @@ export function RecommendationPanel({
     if (!audio) return;
     updatePlaybackClock(audio, setCurrentTime, setDuration);
     reportPlaybackIfNeeded(audio);
+    maybeTriggerProactiveCompanion(audio);
   }
 
   function handleLoadedMetadata() {
@@ -245,6 +249,46 @@ export function RecommendationPanel({
         completed
       })
     }).catch(() => undefined);
+  }
+
+  function maybeTriggerProactiveCompanion(audio: HTMLAudioElement) {
+    if (!activeItem || proactiveMessage) return;
+    if (proactiveTriggeredRef.current.has(activeItem.id)) return;
+    const playedSeconds = Number.isFinite(audio.currentTime) ? Math.max(0, audio.currentTime) : 0;
+    const durationSeconds = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    if (playedSeconds < proactiveThresholdSeconds(durationSeconds)) return;
+
+    proactiveTriggeredRef.current.add(activeItem.id);
+    void requestProactiveCompanionMessage(playedSeconds, durationSeconds);
+  }
+
+  async function requestProactiveCompanionMessage(playedSeconds: number, durationSeconds: number) {
+    if (!activeItem) return;
+    try {
+      const response = await fetch("/api/companion/proactive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          song: {
+            id: activeItem.song.neteaseSongId,
+            name: activeItem.song.name,
+            artists: activeItem.song.artistNames,
+            album: activeItem.song.albumName,
+            tags: activeItem.song.tags
+          },
+          currentLyricLine: activeLyricIndex >= 0 ? lyricLines[activeLyricIndex] : null,
+          playback: {
+            currentTime: playedSeconds,
+            duration: durationSeconds
+          },
+          history: chatMessages
+        })
+      });
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      if (response.ok && data.message) setProactiveMessage(data.message);
+    } catch {
+      // Proactive companion prompts should never interrupt playback.
+    }
   }
 
   function handleSeek(event: ChangeEvent<HTMLInputElement>) {
@@ -303,8 +347,16 @@ export function RecommendationPanel({
     }
   }
 
-  function openChat() {
+  function openChat(seedMessage?: string) {
+    const proactiveSeed = typeof seedMessage === "string" ? seedMessage : null;
     setChatOpen(true);
+    if (proactiveSeed && activeItem) {
+      setChatMessages((current) => {
+        if (current.some((message) => message.text === proactiveSeed)) return current;
+        return [...current, { id: `proactive-${activeItem.id}`, role: "companion", text: proactiveSeed }];
+      });
+      return;
+    }
     if (chatMessages.length || !activeItem) return;
     const line = activeLyricIndex >= 0 ? lyricLines[activeLyricIndex]?.text : null;
     setChatMessages([
@@ -406,12 +458,14 @@ export function RecommendationPanel({
                   <span className="cover-art" aria-label={`${activeItem.song.name} 专辑封面`}>
                     {activeItem.song.coverUrl ? <img src={activeItem.song.coverUrl} alt="" /> : <span className="cover-mark">AI</span>}
                   </span>
-                  <span className="companion-bubble" onClick={(event) => {
-                    event.stopPropagation();
-                    openChat();
-                  }}>
-                    {activeItem.reason}
-                  </span>
+                  {proactiveMessage ? (
+                    <span className="companion-bubble" onClick={(event) => {
+                      event.stopPropagation();
+                      openChat(proactiveMessage);
+                    }}>
+                      {proactiveMessage}
+                    </span>
+                  ) : null}
                 </button>
               )}
 
@@ -485,7 +539,7 @@ export function RecommendationPanel({
               <button type="button" title="下一首" aria-label="下一首" onClick={() => selectIndex(activeIndex + 1)} disabled={items.length < 2}>
                 <ChevronRight size={22} />
               </button>
-              <button type="button" title="一起听" aria-label="打开一起听" onClick={openChat}>
+              <button type="button" title="一起听" aria-label="打开一起听" onClick={() => openChat()}>
                 <MessageCircle size={21} />
               </button>
             </div>
@@ -522,12 +576,12 @@ export function RecommendationPanel({
             <Play size={34} />
           </div>
           <div>
-            <p className="eyebrow">{libraryReady ? "曲库已就绪" : "等待曲库同步"}</p>
-            <h3>{libraryReady ? "准备好播放了" : "还没有可推荐的真实歌曲"}</h3>
-            <p>{libraryReady ? "输入当前场景后，AI 会从本地真实曲库里挑歌，不会临时编造歌单。" : "登录并同步后才会生成推荐，不使用预设歌单。"}</p>
+            <p className="eyebrow">{libraryReady ? "可以开始听了" : "先连上你的网易云音乐"}</p>
+            <h3>{libraryReady ? "准备好播放了" : "连接后就能为你挑歌"}</h3>
+            <p>{libraryReady ? "输入当前场景后，AI 会从你的音乐里挑一组适合现在的歌。" : "扫码登录后会自动准备你的音乐，不需要手动处理。"}</p>
             <div className="empty-status-row">
-              <span>真实曲库</span>
-              <strong>{libraryReady ? "可播放" : "未就绪"}</strong>
+              <span>私人音乐</span>
+              <strong>{libraryReady ? "可播放" : "准备中"}</strong>
             </div>
             <button type="button" className="empty-scene-button" onClick={() => setSceneDialogOpen(true)}>
               <Sparkles size={18} />
@@ -718,6 +772,11 @@ function updatePlaybackClock(audio: HTMLAudioElement, setCurrentTime: (value: nu
   const nextDuration = Number.isFinite(audio.duration) ? audio.duration : 0;
   setCurrentTime(nextTime);
   setDuration(nextDuration);
+}
+
+function proactiveThresholdSeconds(duration: number) {
+  if (!Number.isFinite(duration) || duration <= 0) return 30;
+  return Math.max(30, duration * 0.35);
 }
 
 function formatPlaybackTime(value: number) {
