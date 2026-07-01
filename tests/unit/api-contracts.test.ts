@@ -3817,6 +3817,37 @@ describe("app services", () => {
     }
   });
 
+  it("does not set Secure on browser session cookies for HTTP preview URLs", async () => {
+    const originalDbPath = process.env.MUSIC_DB_PATH;
+    process.env.MUSIC_DB_PATH = ":memory:";
+    vi.stubEnv("NODE_ENV", "production");
+    resetAppServicesForTests();
+
+    try {
+      const response = await sessionPost(
+        new Request("http://101.201.238.58/api/session", {
+          method: "POST",
+          body: JSON.stringify({})
+        })
+      );
+      const setCookie = response.headers.get("set-cookie") ?? "";
+
+      expect(response.status).toBe(200);
+      expect(setCookie).toContain("ai_music_user=");
+      expect(setCookie).toContain("HttpOnly");
+      expect(setCookie).toContain("SameSite=Lax");
+      expect(setCookie).not.toContain("Secure");
+    } finally {
+      vi.unstubAllEnvs();
+      if (originalDbPath === undefined) {
+        delete process.env.MUSIC_DB_PATH;
+      } else {
+        process.env.MUSIC_DB_PATH = originalDbPath;
+      }
+      resetAppServicesForTests();
+    }
+  });
+
   it("accepts browser sessions only from configured invite codes when an allowlist is set", async () => {
     const originalDbPath = process.env.MUSIC_DB_PATH;
     const originalInviteCodes = process.env.AI_MUSIC_INVITE_CODES;

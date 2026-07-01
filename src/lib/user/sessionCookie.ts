@@ -8,9 +8,9 @@ export function createSessionCookieValue(userId: number) {
   return `${SESSION_VERSION}.${id}.${signSessionId(id)}`;
 }
 
-export function createSessionSetCookie(userId: number) {
+export function createSessionSetCookie(userId: number, request?: Request) {
   const attributes = [`${SESSION_COOKIE_NAME}=${createSessionCookieValue(userId)}`, "Path=/", "HttpOnly", "SameSite=Lax"];
-  if (process.env.NODE_ENV === "production") {
+  if (shouldUseSecureCookie(request)) {
     attributes.push("Secure");
   }
   return attributes.join("; ");
@@ -43,6 +43,14 @@ function safeSignatureEqual(a: string, b: string) {
 
 function sessionSecret() {
   return process.env.AI_MUSIC_SESSION_SECRET?.trim() || process.env.NEXTAUTH_SECRET?.trim() || "local-dev-ai-music-session-secret";
+}
+
+function shouldUseSecureCookie(request?: Request) {
+  if (process.env.NODE_ENV !== "production") return false;
+  if (!request) return true;
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwardedProto) return forwardedProto === "https";
+  return new URL(request.url).protocol === "https:";
 }
 
 function readCookie(cookieHeader: string, name: string) {

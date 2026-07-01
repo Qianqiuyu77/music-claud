@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       { user },
       {
         headers: {
-          "Set-Cookie": createSessionSetCookie(user.id)
+          "Set-Cookie": createSessionSetCookie(user.id, request)
         }
       }
     );
